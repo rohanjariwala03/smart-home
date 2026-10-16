@@ -1,14 +1,29 @@
 {
   "expo": {
-    "name": "smart-home",
+    "name": "Smart Home",
     "slug": "smart-home",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "smarthome",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "supportsTablet": false,
+      "bundleIdentifier": "com.rohanjariwala.smarthome",
+      "appleTeamId": "6JZ9VLN88F",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Connects to Home Assistant on your home network.",
+        "NSMicrophoneUsageDescription": "Lets you talk through your Blink cameras."
+      },
+      "entitlements": {
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)com.rohanjariwala.smarthome.shared"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -31,6 +46,17 @@
           "backgroundColor": "#208AEF",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      "expo-secure-store",
+      "./plugins/with-scene-lifecycle",
+      "./plugins/with-app-shortcuts",
+      "@bacons/apple-targets",
+      "expo-video",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT_UP"
         }
       ]
     ],
