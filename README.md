@@ -58,7 +58,7 @@ Devices are listed by domain, not by hard-coded entity IDs. Anything added in HA
 
 ## Security
 
-- LAN only. For remote use add a VPN (e.g. Tailscale). Never port-forward Home Assistant or the proxy.
+- Away from home: the Tailscale add-on (`a0d7b954_tailscale`) advertises the subnet route `192.168.2.79/32` (approved, key expiry off), so the app keeps using `http://192.168.2.79`. The iPhone runs the Tailscale app with VPN On Demand. Never port-forward Home Assistant or the proxy.
 - The token is a bearer credential for the house, cameras included. It is stored only in the Keychain and never logged.
 - Blink credentials live in the proxy add-on, never in the app.
 - Push-to-talk in the live player needs HTTPS; on a plain `http://` URL it is unavailable.
