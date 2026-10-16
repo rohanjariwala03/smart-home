@@ -23,7 +23,7 @@ import { LiveGrid } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
 import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
-import { Toggle } from '@/components/toggle';
+import { armStatus, Toggle } from '@/components/toggle';
 import { FavouriteButton } from '@/favourites';
 import { byDomain, name, unavailable, useHA } from '@/ha';
 
@@ -93,8 +93,10 @@ export default function CamerasScreen() {
             <View style={styles.flex}>
               <Toggle
                 entity={e}
-                label={`${name(e)}: ${e.state === 'armed_away' ? 'armed' : 'disarmed'}`}
-                isOn={e.state === 'armed_away'}
+                label={name(e)}
+                // 'arming' counts as on, so the switch doesn't flick back while Blink gets there.
+                isOn={e.state.startsWith('arm')}
+                status={armStatus}
                 onChange={(on) =>
                   call('alarm_control_panel', on ? 'alarm_arm_away' : 'alarm_disarm', { entity_id: e.entity_id })
                 }

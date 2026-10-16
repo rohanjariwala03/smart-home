@@ -16,7 +16,7 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { shareVideo } from '@/components/clips';
@@ -31,7 +31,8 @@ import MicStream from '../../modules/mic-stream';
 // segments carry it. Fetching the playlist starts the camera; /stop frees it.
 // Push-to-talk and camera controls ride the same live-view session (the `session` id).
 // The proxy keeps a copy of every live view, which is what Record saves.
-// Controls fade out a few seconds into playback; tap the video to bring them back, double-tap to fill the screen.
+// Controls fade out a few seconds into playback; tap the video to bring them back. Pinch to zoom (drag to look
+// around), double-tap to zoom back out or, unzoomed, to fill the screen.
 export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   creds: Creds;
   slug: string;
@@ -165,9 +166,16 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
     return () => clearTimeout(t);
   }, [visible, pinned, touched]);
   const poke = () => setTouched((n) => n + 1);
-  const gesture = Gesture.Exclusive(
-    Gesture.Tap().numberOfTaps(2).runOnJS(true).onEnd(() => setFill((f) => !f)),
-    Gesture.Tap().runOnJS(true).onEnd(() => setShown(!visible)),
+  const zoom = useZoom(width, height);
+  const gesture = Gesture.Simultaneous(
+    zoom.gesture,
+    Gesture.Exclusive(
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .runOnJS(true)
+        .onEnd(() => (zoom.zoomed() ? zoom.reset() : setFill((f) => !f))),
+      Gesture.Tap().runOnJS(true).onEnd(() => setShown(!visible)),
+    ),
   );
   const message = error ?? (ended ? 'Live view ended' : !live ? 'Connecting to camera…' : undefined);
   const side = { paddingLeft: Math.max(insets.left, Spacing.three), paddingRight: Math.max(insets.right, Spacing.three) };
@@ -187,13 +195,15 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
             accessibilityLabel={`${title} live video`}
             accessibilityHint="Tap to show or hide the controls. Double-tap to fill the screen.">
             {token && !error && (
-              <VideoView
-                style={StyleSheet.absoluteFill}
-                player={player}
-                nativeControls={false}
-                contentFit={fill ? 'cover' : 'contain'}
-                onFirstFrameRender={() => setLive(true)}
-              />
+              <Animated.View style={[StyleSheet.absoluteFill, zoom.style]}>
+                <VideoView
+                  style={StyleSheet.absoluteFill}
+                  player={player}
+                  nativeControls={false}
+                  contentFit={fill ? 'cover' : 'contain'}
+                  onFirstFrameRender={() => setLive(true)}
+                />
+              </Animated.View>
             )}
           </View>
         </GestureDetector>
@@ -290,6 +300,58 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
       </GestureHandlerRootView>
     </Modal>
   );
+}
+
+const MAX_ZOOM = 5;
+
+/** Pinch to zoom up to 5×, one-finger drag to pan while zoomed, kept inside the screen. Runs on the UI thread. */
+function useZoom(width: number, height: number) {
+  const scale = useSharedValue(1);
+  const start = useSharedValue(1);
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  const startX = useSharedValue(0);
+  const startY = useSharedValue(0);
+
+  const clamp = (v: number, size: number, s: number) => {
+    'worklet';
+    const max = ((s - 1) * size) / 2;
+    return Math.min(max, Math.max(-max, v));
+  };
+  const pinch = Gesture.Pinch()
+    .onStart(() => {
+      start.value = scale.value;
+    })
+    .onUpdate((e) => {
+      scale.value = Math.min(MAX_ZOOM, Math.max(1, start.value * e.scale));
+      x.value = clamp(x.value, width, scale.value);
+      y.value = clamp(y.value, height, scale.value);
+    });
+  const pan = Gesture.Pan()
+    .averageTouches(true)
+    .onStart(() => {
+      startX.value = x.value;
+      startY.value = y.value;
+    })
+    .onUpdate((e) => {
+      if (scale.value <= 1) return;
+      x.value = clamp(startX.value + e.translationX, width, scale.value);
+      y.value = clamp(startY.value + e.translationY, height, scale.value);
+    });
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
+  }));
+
+  return {
+    gesture: Gesture.Simultaneous(pinch, pan),
+    style,
+    zoomed: () => scale.get() > 1.01,
+    reset: () => {
+      scale.set(withTiming(1));
+      x.set(withTiming(0));
+      y.set(withTiming(0));
+    },
+  };
 }
 
 /**

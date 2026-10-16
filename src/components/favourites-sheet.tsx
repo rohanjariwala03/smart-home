@@ -1,82 +1,78 @@
+import { Button, Host, Label, List, Section, Text } from '@expo/ui/swift-ui';
+import { environment } from '@expo/ui/swift-ui/modifiers';
 import type { HassEntity } from 'home-assistant-js-websocket';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, View } from 'react-native';
 
-import { allDevices } from '@/components/device-tile';
-import { Card } from '@/components/screen';
+import { allDevices, domainOf, ICONS } from '@/components/device-tile';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { FavouriteStar, useFavourites } from '@/favourites';
+import { useFavourites } from '@/favourites';
 import { byDomain, name, useHA } from '@/ha';
 
-/** Pick what the Home tab shows. */
+const icon = (e: HassEntity) => (e.attributes.snapshot_of ? 'video.fill' : (ICONS[domainOf(e)] ?? 'power'));
+
+/** Pick what the Home tab shows and in what order: drag to reorder, swipe or ⊖ to remove, ⊕ to add. */
 export function FavouritesSheet({ onClose }: { onClose: () => void }) {
   const { entities, devices } = useHA();
+  const { favourites = [], toggle, save } = useFavourites();
+  const pinned = favourites.filter((id) => entities[id]);
   const sections: [string, HassEntity[]][] = [
     ['Cameras', byDomain(entities, 'camera').filter((e) => e.attributes.snapshot_of)],
     ['Devices', allDevices(entities, devices)],
     ['Scenes', byDomain(entities, 'scene', 'script')],
   ];
 
+  // SwiftUI's onMove: `destination` is an index into the list before the move.
+  const move = (from: number[], destination: number) => {
+    const moved = from.map((i) => pinned[i]);
+    const rest = pinned.filter((_, i) => !from.includes(i));
+    rest.splice(destination - from.filter((i) => i < destination).length, 0, ...moved);
+    save([...rest, ...favourites.filter((id) => !entities[id])]);
+  };
+  const remove = (indices: number[]) => save(favourites.filter((id) => !indices.some((i) => pinned[i] === id)));
+
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <ThemedView style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.sheet}>
-          <View style={styles.header}>
-            <ThemedText type="subtitle" style={styles.flex}>
-              Favourites
-            </ThemedText>
-            <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>
-              <ThemedText type="linkPrimary">Done</ThemedText>
-            </Pressable>
-          </View>
-          <ThemedText type="small" themeColor="textSecondary">
-            Starred items show on Home, in the order you star them.
+        <View style={styles.header}>
+          <ThemedText type="subtitle" style={styles.flex}>
+            Favourites
           </ThemedText>
-          {sections.map(
-            ([title, list]) =>
-              list.length > 0 && (
-                <View key={title} style={styles.section}>
-                  <ThemedText type="smallBold" themeColor="textSecondary">
-                    {title}
-                  </ThemedText>
-                  <Card>
-                    {list.map((e) => (
-                      <StarRow key={e.entity_id} entity={e} />
+          <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>
+            <ThemedText type="linkPrimary">Done</ThemedText>
+          </Pressable>
+        </View>
+        <Host style={styles.flex}>
+          <List modifiers={[environment('editMode', 'active')]}>
+            <Section title="On Home" footer={<Text>Drag to reorder. Tap ⊖ or swipe to remove.</Text>}>
+              {pinned.length === 0 && <Text>Nothing yet. Add some below.</Text>}
+              <List.ForEach onMove={move} onDelete={remove}>
+                {pinned.map((id) => (
+                  <Label key={id} title={name(entities[id])} systemImage={icon(entities[id])} />
+                ))}
+              </List.ForEach>
+            </Section>
+            {sections.map(([title, list]) => {
+              const rest = list.filter((e) => !favourites.includes(e.entity_id));
+              return (
+                rest.length > 0 && (
+                  <Section key={title} title={`Add ${title.toLowerCase()}`}>
+                    {rest.map((e) => (
+                      <Button key={e.entity_id} systemImage="plus.circle.fill" label={name(e)} onPress={() => toggle(e.entity_id)} />
                     ))}
-                  </Card>
-                </View>
-              ),
-          )}
-        </ScrollView>
+                  </Section>
+                )
+              );
+            })}
+          </List>
+        </Host>
       </ThemedView>
     </Modal>
   );
 }
 
-function StarRow({ entity }: { entity: HassEntity }) {
-  const { isFavourite, toggle } = useFavourites();
-  const on = isFavourite(entity.entity_id);
-  return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityLabel={name(entity)}
-      accessibilityState={{ checked: on }}
-      onPress={() => toggle(entity.entity_id)}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-      <ThemedText style={styles.flex} numberOfLines={1}>
-        {name(entity)}
-      </ThemedText>
-      <FavouriteStar on={on} />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  sheet: { padding: Spacing.three, gap: Spacing.three, paddingBottom: Spacing.six },
-  header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
-  section: { gap: Spacing.two },
-  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
-  pressed: { opacity: 0.6 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, padding: Spacing.three },
 });

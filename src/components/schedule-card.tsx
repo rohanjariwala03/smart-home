@@ -81,7 +81,7 @@ export function ScheduleCard({ entity }: { entity: HassEntity }) {
             <Switch
               accessibilityLabel={`${d.title} enabled`}
               value={s.enabled}
-              onValueChange={(on) => call('automation', on ? 'turn_on' : 'turn_off', { entity_id: s.automation })}
+              onValueChange={(on) => void call('automation', on ? 'turn_on' : 'turn_off', { entity_id: s.automation })}
             />
           </View>
         );

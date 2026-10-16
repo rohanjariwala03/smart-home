@@ -10,7 +10,7 @@ import { Card } from '@/components/screen';
 import { FavouriteButton } from '@/favourites';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Toggle } from '@/components/toggle';
+import { armStatus, Toggle } from '@/components/toggle';
 import { Spacing } from '@/constants/theme';
 import { deviceName, name, unavailable, useHA, type Device } from '@/ha';
 import { GoveeCard } from '@/govee';
@@ -77,7 +77,8 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
               <Toggle
                 entity={entity}
                 label="Armed"
-                isOn={entity.state.startsWith('armed')}
+                isOn={entity.state.startsWith('arm')}
+                status={armStatus}
                 onChange={(on) =>
                   call('alarm_control_panel', on ? 'alarm_arm_away' : 'alarm_disarm', { entity_id: entity.entity_id })
                 }

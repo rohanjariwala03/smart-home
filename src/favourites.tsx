@@ -22,13 +22,13 @@ export function useFavourites() {
     loaded.then(setList);
     return () => void listeners.delete(setList);
   }, []);
-  const toggle = (id: string) => {
-    const next = list?.includes(id) ? list.filter((f) => f !== id) : [...(list ?? []), id];
+  const save = (next: string[]) => {
     favs = next;
     listeners.forEach((l) => l(next));
     SecureStore.setItemAsync(KEY, JSON.stringify(next));
   };
-  return { favourites: list, isFavourite: (id: string) => !!list?.includes(id), toggle };
+  const toggle = (id: string) => save(list?.includes(id) ? list.filter((f) => f !== id) : [...(list ?? []), id]);
+  return { favourites: list, isFavourite: (id: string) => !!list?.includes(id), toggle, save };
 }
 
 export function FavouriteStar({ on, size = 22 }: { on: boolean; size?: number }) {

@@ -32,7 +32,8 @@ type HA = {
   save: (creds: Creds) => Promise<void>;
   /** Re-read rooms and devices, e.g. after renaming or moving one. */
   reloadRegistry: () => void;
-  call: (domain: string, service: string, data: object) => Promise<void>;
+  /** Resolves false if HA refused (the user has already been told). */
+  call: (domain: string, service: string, data: object) => Promise<boolean>;
 };
 
 const KEY = 'ha-creds';
@@ -159,11 +160,15 @@ export function HAProvider({ children }: { children: ReactNode }) {
     setCreds(next);
   };
 
-  // UI never updates optimistically: state only changes when HA reports it.
+  // Entity state only changes when HA reports it; switches show the pending position meanwhile (src/optimistic.ts).
   const call = async (domain: string, service: string, data: object) => {
-    if (!conn) return;
-    await callService(conn, domain, service, data).catch((e) =>
-      Alert.alert('Command failed', e?.message ?? String(e)),
+    if (!conn) return false;
+    return callService(conn, domain, service, data).then(
+      () => true,
+      (e) => {
+        Alert.alert('Command failed', e?.message ?? String(e));
+        return false;
+      },
     );
   };
 
