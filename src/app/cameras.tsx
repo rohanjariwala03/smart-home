@@ -2,16 +2,26 @@ import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Alert, Button, Image, Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Button, Image, Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { alertId, blinkSignedOut, restartBlinkProxy, SIGN_IN_AGAIN, removeAutomation, setAlert, useAutomation, useNotifyServices } from '@/automations';
+import {
+  alertId,
+  blinkSignedOut,
+  motionLightId,
+  restartBlinkProxy,
+  SIGN_IN_AGAIN,
+  removeAutomation,
+  setAlert,
+  useAutomation,
+  useNotifyServices,
+} from '@/automations';
 import { ArmingCard, MotionLightCard } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
 import { ClipsSheet } from '@/components/clips';
 import { DeviceSheet } from '@/components/device-sheet';
 import { LiveGrid } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
-import { Card, Screen } from '@/components/screen';
+import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Toggle } from '@/components/toggle';
 import { byDomain, name, unavailable, useHA } from '@/ha';
@@ -97,7 +107,9 @@ export default function CamerasScreen() {
               <SymbolView name="calendar.badge.clock" size={22} tintColor="#8E8E93" />
             </Pressable>
           </View>
-          <ArmingCard alarm={e} />
+          <Disclosure title="Automatic arming">
+            <ArmingCard alarm={e} />
+          </Disclosure>
         </Card>
       ))}
       {cameras.map((e) => (
@@ -157,6 +169,10 @@ function Camera({ entity, notify, onClips }: {
   const temperature = sibling('sensor', 'temperature');
   const picture: string | undefined = entity.attributes.entity_picture;
   const isBlink = device?.manufacturer === 'Blink';
+  const doorbell = live?.attributes.camera_type === 'doorbell';
+  const canWatch = !!creds && !!slug && !unavailable(live);
+  const alertsOn = useAutomation(alertId(entity.entity_id))?.state === 'on';
+  const lightsOn = !!useAutomation(motionLightId(entity.entity_id));
 
   const snapshot = async () => {
     setBusy(true);
@@ -173,49 +189,62 @@ function Camera({ entity, notify, onClips }: {
     motion && !unavailable(motion) && `Motion: ${motion.state === 'on' ? 'detected' : 'clear'}`,
     battery && !unavailable(battery) && `Battery: ${battery.state === 'on' ? 'low' : 'OK'}`,
     temperature && !unavailable(temperature) && `${temperature.state}${temperature.attributes.unit_of_measurement ?? ''}`,
-    `Updated ${new Date(entity.last_updated).toLocaleTimeString()}`,
+  ].filter(Boolean);
+  const automations = [
+    motionDetection && !unavailable(motionDetection) && (motionDetection.state === 'on' ? 'Detecting' : 'Detection off'),
+    alertsOn && 'Alerts',
+    lightsOn && 'Lights',
   ].filter(Boolean);
 
   return (
     <Card dim={unavailable(entity)}>
       <ThemedText type="smallBold">{name(entity)}</ThemedText>
       {creds && picture && (
-        <Image
-          style={styles.image}
-          accessibilityLabel={`${name(entity)} snapshot`}
-          source={{ uri: `${creds.url}${picture}&t=${bust}` }}
-        />
+        // Tap the snapshot to watch live.
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={canWatch ? `Watch ${name(entity)} live` : `${name(entity)} snapshot`}
+          disabled={!canWatch}
+          onPress={() => setWatching(true)}
+          style={({ pressed }) => pressed && styles.pressed}>
+          <Image style={styles.image} source={{ uri: `${creds.url}${picture}&t=${bust}` }} />
+          {canWatch && (
+            <View style={styles.play}>
+              <SymbolView name="play.fill" size={22} tintColor="#fff" />
+            </View>
+          )}
+          <Text style={styles.stamp}>{new Date(entity.attributes.snapshot_taken ?? entity.last_updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
+        </Pressable>
       )}
-      <ThemedText type="small" themeColor="textSecondary">
-        {details.join(' · ')}
-      </ThemedText>
-      {motionDetection && <Toggle entity={motionDetection} label="Motion detection" />}
-      {motion && (
-        <MotionAlerts
-          camera={entity}
-          motion={motion}
-          notify={notify}
-          slug={slug}
-          doorbell={live?.attributes.camera_type === 'doorbell'}
-        />
+      {details.length > 0 && (
+        <ThemedText type="small" themeColor="textSecondary">
+          {details.join(' · ')}
+        </ThemedText>
       )}
-      {motion && <MotionLightCard camera={entity} motion={motion} />}
-      <View style={styles.actions}>
+      <View style={styles.chips}>
         {slug ? (
-          <Button title="Live view" disabled={!creds || unavailable(live)} onPress={() => setWatching(true)} />
+          <Chip icon="video.fill" label="Live" disabled={!canWatch} onPress={() => setWatching(true)} />
         ) : (
           // HA's Blink integration has no live stream; the Blink app does.
-          <Button title="Live view in Blink" onPress={() => Linking.openURL(BLINK_APP_STORE)} />
+          <Chip icon="video.fill" label="Live in Blink" onPress={() => Linking.openURL(BLINK_APP_STORE)} />
         )}
-        {slug && <Button title="Clips" onPress={() => onClips(slug)} />}
+        {slug && <Chip icon="film.stack" label="Clips" onPress={() => onClips(slug)} />}
         {(refresh || isBlink) && (
-          <Button
-            title={busy ? 'Taking snapshot…' : 'New snapshot'}
+          <Chip
+            icon="camera.fill"
+            label={busy ? 'Taking…' : 'Snapshot'}
             disabled={busy || unavailable(refresh ?? entity)}
             onPress={snapshot}
           />
         )}
       </View>
+      {(motionDetection || motion) && (
+        <Disclosure title={doorbell ? 'Doorbell & motion' : 'Motion'} summary={automations.join(' · ') || 'Off'}>
+          {motionDetection && <Toggle entity={motionDetection} label="Motion detection" />}
+          {motion && <MotionAlerts camera={entity} motion={motion} notify={notify} slug={slug} doorbell={doorbell} />}
+          {motion && <MotionLightCard camera={entity} motion={motion} />}
+        </Disclosure>
+      )}
       {watching && creds && slug && (
         <LiveView
           creds={creds}
@@ -232,7 +261,33 @@ function Camera({ entity, notify, onClips }: {
 const styles = StyleSheet.create({
   image: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: '#0003' },
   actions: { flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap' },
-  chips: { flexDirection: 'row', gap: 8 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pressed: { opacity: 0.8 },
+  play: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '50%',
+    marginTop: -26,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  stamp: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
   flex: { flex: 1 },
   syncRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   error: { color: '#E5484D' },

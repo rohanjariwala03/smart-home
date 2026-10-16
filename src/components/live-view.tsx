@@ -4,6 +4,7 @@ import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   AppState,
   Modal,
@@ -14,6 +15,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { shareVideo } from '@/components/clips';
@@ -28,6 +31,7 @@ import MicStream from '../../modules/mic-stream';
 // segments carry it. Fetching the playlist starts the camera; /stop frees it.
 // Push-to-talk and camera controls ride the same live-view session (the `session` id).
 // The proxy keeps a copy of every live view, which is what Record saves.
+// Controls fade out a few seconds into playback; tap the video to bring them back, double-tap to fill the screen.
 export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   creds: Creds;
   slug: string;
@@ -50,6 +54,7 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   const [panel, setPanel] = useState(false);
   const [recording, setRecording] = useState(false);
   const [saving, setSaving] = useState<string>();
+  const [fill, setFill] = useState(false);
 
   useRotation();
 
@@ -145,6 +150,25 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   useEffect(() => () => void MicStream.stop(), []);
 
   const playing = live && !ended && !error;
+
+  // Controls: shown until playback starts, then hidden after a few idle seconds. They stay up while there's
+  // something to read or hold (settings, talking, errors) and always with VoiceOver.
+  const [shown, setShown] = useState(true);
+  const [touched, setTouched] = useState(0);
+  const [reader, setReader] = useState(false);
+  useEffect(() => void AccessibilityInfo.isScreenReaderEnabled().then(setReader), []);
+  const pinned = !playing || panel || talk !== 'off' || !!talkError || reader;
+  const visible = shown || pinned;
+  useEffect(() => {
+    if (!visible || pinned) return;
+    const t = setTimeout(() => setShown(false), 4000);
+    return () => clearTimeout(t);
+  }, [visible, pinned, touched]);
+  const poke = () => setTouched((n) => n + 1);
+  const gesture = Gesture.Exclusive(
+    Gesture.Tap().numberOfTaps(2).runOnJS(true).onEnd(() => setFill((f) => !f)),
+    Gesture.Tap().runOnJS(true).onEnd(() => setShown(!visible)),
+  );
   const message = error ?? (ended ? 'Live view ended' : !live ? 'Connecting to camera…' : undefined);
   const side = { paddingLeft: Math.max(insets.left, Spacing.three), paddingRight: Math.max(insets.right, Spacing.three) };
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -155,16 +179,24 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
       presentationStyle="fullScreen"
       supportedOrientations={['portrait', 'landscape']}
       onRequestClose={onClose}>
-      <View style={styles.root}>
-        {token && !error && (
-          <VideoView
+      <GestureHandlerRootView style={styles.root}>
+        <GestureDetector gesture={gesture}>
+          <View
             style={StyleSheet.absoluteFill}
-            player={player}
-            nativeControls={false}
-            contentFit="contain"
-            onFirstFrameRender={() => setLive(true)}
-          />
-        )}
+            accessible
+            accessibilityLabel={`${title} live video`}
+            accessibilityHint="Tap to show or hide the controls. Double-tap to fill the screen.">
+            {token && !error && (
+              <VideoView
+                style={StyleSheet.absoluteFill}
+                player={player}
+                nativeControls={false}
+                contentFit={fill ? 'cover' : 'contain'}
+                onFirstFrameRender={() => setLive(true)}
+              />
+            )}
+          </View>
+        </GestureDetector>
 
         {message && (
           <View style={styles.center}>
@@ -179,71 +211,83 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
           </View>
         )}
 
-        <View style={[styles.top, side, { paddingTop: insets.top + Spacing.two }]}>
-          <View style={styles.flex}>
-            <Text style={styles.title} numberOfLines={1}>
-              {title}
-            </Text>
-            {playing && (
-              <View style={styles.badge}>
-                <View style={styles.dot} />
-                <Text style={styles.badgeText}>
-                  {recording ? 'REC' : 'LIVE'} {clock}
-                </Text>
-              </View>
-            )}
-          </View>
-          <Round icon="slider.horizontal.3" label="Camera settings" onPress={() => setPanel(!panel)} />
-          <Round
-            icon={landscape ? 'arrow.down.right.and.arrow.up.left' : 'arrow.up.left.and.arrow.down.right'}
-            label={landscape ? 'Exit full screen' : 'Full screen'}
-            onPress={() => (landscape ? lockPortrait() : lockLandscape())}
-          />
-          <Round icon="xmark" label="Close live view" onPress={onClose} />
-        </View>
+        {visible && (
+          <Animated.View
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(300)}
+            onTouchStart={poke}
+            style={[styles.top, styles.topScrim, side, { paddingTop: insets.top + Spacing.two }]}>
+            <View style={styles.flex}>
+              <Text style={styles.title} numberOfLines={1}>
+                {title}
+              </Text>
+              {playing && (
+                <View style={styles.badge}>
+                  <View style={styles.dot} />
+                  <Text style={styles.badgeText}>
+                    {recording ? 'REC' : 'LIVE'} {clock}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Round icon="slider.horizontal.3" label="Camera settings" onPress={() => setPanel(!panel)} />
+            <Round
+              icon={landscape ? 'arrow.down.right.and.arrow.up.left' : 'arrow.up.left.and.arrow.down.right'}
+              label={landscape ? 'Exit full screen' : 'Full screen'}
+              onPress={() => (landscape ? lockPortrait() : lockLandscape())}
+            />
+            <Round icon="xmark" label="Close live view" onPress={onClose} />
+          </Animated.View>
+        )}
 
         {panel && stream && <ControlsPanel base={base} token={stream.token} session={stream.session} style={side} />}
 
-        <View style={[styles.bottom, side, { paddingBottom: insets.bottom + Spacing.three }]}>
-          {(talk !== 'off' || talkError) && (
-            <Text style={styles.talkText}>
-              {talkError ?? (talk === 'on' ? 'Talking… release to stop' : 'Connecting microphone…')}
-            </Text>
-          )}
-          <View style={styles.controls}>
-            <Round
-              icon={muted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'}
-              label={muted ? 'Unmute' : 'Mute'}
-              onPress={() => {
-                mute(player, !muted);
-                setMuted(!muted);
-              }}
-            />
-            {ptt && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Hold to talk"
-                disabled={!playing}
-                onPressIn={startTalk}
-                onPressOut={stopTalk}
-                style={[styles.big, talk === 'on' && styles.talking, !playing && styles.disabled]}>
-                <SymbolView name="mic.fill" size={28} tintColor={talk === 'on' ? '#fff' : '#000'} />
-              </Pressable>
+        {visible && (
+          <Animated.View
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(300)}
+            onTouchStart={poke}
+            style={[styles.bottom, styles.bottomScrim, side, { paddingBottom: insets.bottom + Spacing.three }]}>
+            {(talk !== 'off' || talkError) && (
+              <Text style={styles.talkText}>
+                {talkError ?? (talk === 'on' ? 'Talking… release to stop' : 'Connecting microphone…')}
+              </Text>
             )}
-            <Round
-              icon={recording ? 'stop.fill' : 'record.circle'}
-              label={recording ? 'Stop recording and save' : 'Record'}
-              tint={recording ? '#FF3B30' : undefined}
-              disabled={!playing}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                if (recording) save();
-                else setRecording(true);
-              }}
-            />
-          </View>
-        </View>
-      </View>
+            <View style={styles.controls}>
+              <Round
+                icon={muted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'}
+                label={muted ? 'Unmute' : 'Mute'}
+                onPress={() => {
+                  mute(player, !muted);
+                  setMuted(!muted);
+                }}
+              />
+              {ptt && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Hold to talk"
+                  disabled={!playing}
+                  onPressIn={startTalk}
+                  onPressOut={stopTalk}
+                  style={[styles.big, talk === 'on' && styles.talking, !playing && styles.disabled]}>
+                  <SymbolView name="mic.fill" size={28} tintColor={talk === 'on' ? '#fff' : '#000'} />
+                </Pressable>
+              )}
+              <Round
+                icon={recording ? 'stop.fill' : 'record.circle'}
+                label={recording ? 'Stop recording and save' : 'Record'}
+                tint={recording ? '#FF3B30' : undefined}
+                disabled={!playing}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  if (recording) save();
+                  else setRecording(true);
+                }}
+              />
+            </View>
+          </Animated.View>
+        )}
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -445,6 +489,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, justifyContent: 'center' },
   top: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', gap: Spacing.three },
+  // Shade behind the controls so they read over a bright picture.
+  topScrim: { paddingBottom: Spacing.five, experimental_backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0.55), transparent)' },
+  bottomScrim: { paddingTop: Spacing.five, experimental_backgroundImage: 'linear-gradient(0deg, rgba(0,0,0,0.55), transparent)' },
   controls: { flexDirection: 'row', alignItems: 'center', gap: Spacing.five },
   big: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   talking: { backgroundColor: '#FF3B30', transform: [{ scale: 1.08 }] },
