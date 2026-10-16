@@ -3,15 +3,20 @@ import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
 import { Pressable } from 'react-native';
 
+import { SHARED_KEYCHAIN } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 
 // Entity ids pinned to the Home tab (devices, cameras, scenes), in the order they were starred.
-// Kept on this phone only. One shared copy so every screen updates together.
+// Kept on this phone only. One shared copy so every screen updates together. A copy in the shared keychain
+// ('ha-favourites') feeds the widget, Siri's device list and the watch (HA.favourites() in targets/widget/_shared).
 const KEY = 'favourites';
 let favs: string[] | undefined;
 const listeners = new Set<(f: string[]) => void>();
+const share = (list: string[]) =>
+  SecureStore.setItemAsync('ha-favourites', JSON.stringify(list), SHARED_KEYCHAIN).catch(() => {});
 const loaded = SecureStore.getItemAsync(KEY).then((v) => {
   favs = v ? JSON.parse(v) : [];
+  share(favs!);
   return favs!;
 });
 
@@ -26,6 +31,7 @@ export function useFavourites() {
     favs = next;
     listeners.forEach((l) => l(next));
     SecureStore.setItemAsync(KEY, JSON.stringify(next));
+    share(next);
   };
   const toggle = (id: string) => save(list?.includes(id) ? list.filter((f) => f !== id) : [...(list ?? []), id]);
   return { favourites: list, isFavourite: (id: string) => !!list?.includes(id), toggle, save };

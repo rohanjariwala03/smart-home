@@ -82,20 +82,27 @@ final class Home: ObservableObject {
     await refresh()
   }
 
+  /// The phone's Home favourites. When there are any, each section shows only those, in that order.
+  private func pinned(_ list: [WState]) -> [WState] {
+    let favs = UserDefaults.standard.stringArray(forKey: "favourites") ?? []
+    let mine = favs.compactMap { id in list.first { $0.entity_id == id } }
+    return favs.isEmpty ? list : mine
+  }
+
   var cameras: [WState] {
     let doorbells = Set(states.filter { $0.attributes.camera_type == "doorbell" }.compactMap(\.attributes.proxy_slug))
-    return states.filter { $0.attributes.snapshot_of != nil }
-      .sorted { doorbells.contains($0.attributes.snapshot_of!) && !doorbells.contains($1.attributes.snapshot_of!) }
+    return pinned(states.filter { $0.attributes.snapshot_of != nil }
+      .sorted { doorbells.contains($0.attributes.snapshot_of!) && !doorbells.contains($1.attributes.snapshot_of!) })
   }
 
   var devices: [WState] {
-    states.filter {
+    pinned(states.filter {
       ["light", "switch", "fan", "input_boolean"].contains($0.domain)
         && !$0.entity_id.hasPrefix("switch.blink_proxy_") && !$0.entity_id.hasSuffix("_motion_detection")
-    }
+    })
   }
 
-  var scenes: [WState] { states.filter { $0.domain == "scene" || $0.domain == "script" } }
+  var scenes: [WState] { pinned(states.filter { $0.domain == "scene" || $0.domain == "script" }) }
 
   func picture(_ camera: WState) -> URL? {
     guard let c = creds, let p = camera.attributes.entity_picture else { return nil }

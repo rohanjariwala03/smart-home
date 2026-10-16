@@ -1,9 +1,13 @@
 import Foundation
 import Security
 import WatchConnectivity
+#if os(iOS)
+import UIKit
+#endif
 
 // Hands the Home Assistant URL + token from the iPhone app to the watch app. Compiled into both:
 // the phone sends what it saved for the widget (HA.creds()), the watch keeps it in its own keychain.
+// Also the Home favourites, so the watch shows the same things in the same order.
 
 struct WatchCreds: Codable, Equatable {
   let url: String
@@ -17,6 +21,13 @@ final class WatchSync: NSObject, WCSessionDelegate {
     guard WCSession.isSupported() else { return }
     WCSession.default.delegate = self
     WCSession.default.activate()
+    #if os(iOS)
+    // Leaving the app: pass on any change to favourites (or sign-in) to the widgets and the watch.
+    NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+      HA.refreshWidgets()
+      self?.push(WCSession.default)
+    }
+    #endif
   }
 
   func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
@@ -28,7 +39,7 @@ final class WatchSync: NSObject, WCSessionDelegate {
   }
 
   #if os(iOS)
-  private var payload: [String: Any]? { HA.creds().map { ["url": $0.url, "token": $0.token] } }
+  private var payload: [String: Any]? { HA.creds().map { ["url": $0.url, "token": $0.token, "favourites": HA.favourites()] } }
 
   private func push(_ session: WCSession) {
     guard session.activationState == .activated, session.isPaired, session.isWatchAppInstalled, let payload else { return }
@@ -55,6 +66,7 @@ final class WatchSync: NSObject, WCSessionDelegate {
     guard let url = context["url"] as? String, let token = context["token"] as? String else { return }
     let creds = WatchCreds(url: url, token: token)
     Keychain.save(creds)
+    UserDefaults.standard.set(context["favourites"] as? [String] ?? [], forKey: "favourites")
     DispatchQueue.main.async { NotificationCenter.default.post(name: .watchCreds, object: creds) }
   }
   #endif

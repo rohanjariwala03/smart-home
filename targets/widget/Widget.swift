@@ -11,7 +11,7 @@ import WidgetKit
 
 struct ChooseDevices: WidgetConfigurationIntent {
   static let title: LocalizedStringResource = "Choose devices"
-  static let description = IntentDescription("Pick the devices and scenes to show. Leave empty to show your lights and switches.")
+  static let description = IntentDescription("Pick the devices and scenes to show. Leave empty to show your Home favourites.")
 
   @Parameter(title: "Devices") var devices: [DeviceEntity]?
 }
@@ -40,7 +40,9 @@ struct Provider: AppIntentTimelineProvider {
     do {
       let all = try await HA.states()
       let picked = (configuration.devices ?? []).compactMap { d in all.first { $0.entity_id == d.id } }
-      let shown = picked.isEmpty ? all.filter { ["light", "switch"].contains($0.domain) } : picked
+      // Not configured: the app's Home favourites in their order (cameras aren't in `all`), else lights and switches.
+      let favs = HA.favourites().compactMap { id in all.first { $0.entity_id == id } }
+      let shown = !picked.isEmpty ? picked : !favs.isEmpty ? favs : all.filter { ["light", "switch"].contains($0.domain) }
       return Entry(date: .now, devices: Array(shown.prefix(family == .systemLarge ? 8 : 4)))
     } catch HAError.notSignedIn {
       return Entry(date: .now, devices: [], error: "Open Smart Home and connect to Home Assistant")

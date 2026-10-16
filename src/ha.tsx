@@ -41,11 +41,12 @@ const KEY = 'ha-creds';
 // Copy of the creds for the home-screen widget (targets/widget/Widget.swift reads it).
 // Shared keychain group, readable after first unlock so the widget can refresh while locked.
 const ios = Constants.expoConfig?.ios;
+export const SHARED_KEYCHAIN = {
+  accessGroup: `${ios?.appleTeamId}.${ios?.bundleIdentifier}.shared`,
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+};
 const shareWithWidget = (creds: Creds) =>
-  SecureStore.setItemAsync('ha-widget', JSON.stringify(creds), {
-    accessGroup: `${ios?.appleTeamId}.${ios?.bundleIdentifier}.shared`,
-    keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
-  }).catch(() => {});
+  SecureStore.setItemAsync('ha-widget', JSON.stringify(creds), SHARED_KEYCHAIN).catch(() => {});
 
 type Area = { area_id: string; name: string };
 export type Device = {

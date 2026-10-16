@@ -68,17 +68,29 @@ enum HA {
   struct Creds: Decodable { let url: String; let token: String }
 
   // Written by the app (src/ha.tsx, `shareWithWidget`) via expo-secure-store into the shared keychain group.
-  static func creds() -> Creds? {
+  static func creds() -> Creds? { shared("ha-widget") }
+
+  /// Entity ids starred for the app's Home tab, in order (src/favourites.tsx).
+  static func favourites() -> [String] { shared("ha-favourites") ?? [] }
+
+  private static func shared<T: Decodable>(_ account: String) -> T? {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: "app:no-auth",
-      kSecAttrAccount as String: Data("ha-widget".utf8),
+      kSecAttrAccount as String: Data(account.utf8),
       kSecReturnData as String: true,
       kSecMatchLimit as String: kSecMatchLimitOne,
     ]
     var out: CFTypeRef?
     guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-    return try? JSONDecoder().decode(Creds.self, from: data)
+    return try? JSONDecoder().decode(T.self, from: data)
+  }
+
+  /// Favourites first, in their order, then the rest as they were.
+  static func favouritesFirst(_ states: [HAState]) -> [HAState] {
+    let favs = favourites()
+    return states.filter { favs.contains($0.entity_id) }.sorted { favs.firstIndex(of: $0.entity_id)! < favs.firstIndex(of: $1.entity_id)! }
+      + states.filter { !favs.contains($0.entity_id) }
   }
 
   static func request(_ path: String, body: [String: Any]? = nil) async throws -> Data {
@@ -171,7 +183,7 @@ struct DeviceQuery: EntityStringQuery {
   }
 
   func suggestedEntities() async throws -> [DeviceEntity] {
-    try await HA.states().map { DeviceEntity(id: $0.entity_id, name: $0.name) }
+    try await HA.favouritesFirst(HA.states()).map { DeviceEntity(id: $0.entity_id, name: $0.name) }
   }
 }
 
