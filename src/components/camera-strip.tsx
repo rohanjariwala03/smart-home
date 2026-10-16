@@ -8,12 +8,12 @@ import { LiveView } from '@/components/live-view';
 import { Spacing } from '@/constants/theme';
 import { byDomain, name, useHA } from '@/ha';
 
-// Dashboard row of camera snapshots. Tap one for live view; "All live" opens the grid.
-export function CameraStrip() {
+// Dashboard row of camera snapshots (all of them, or just `ids`). Tap one for live view; "All live" opens the grid.
+export function CameraStrip({ ids }: { ids?: string[] }) {
   const { creds, entities } = useHA();
   const [watch, setWatch] = useState<HassEntity>();
   const [grid, setGrid] = useState(false);
-  const cameras = byDomain(entities, 'camera').filter((e) => e.attributes.snapshot_of);
+  const cameras = byDomain(entities, 'camera').filter((e) => e.attributes.snapshot_of && (!ids || ids.includes(e.entity_id)));
   if (!creds || !cameras.length) return null;
 
   const live = (slug: string) =>

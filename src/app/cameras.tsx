@@ -24,6 +24,7 @@ import { LiveView } from '@/components/live-view';
 import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Toggle } from '@/components/toggle';
+import { FavouriteButton } from '@/favourites';
 import { byDomain, name, unavailable, useHA } from '@/ha';
 
 const BLINK_APP_STORE = 'https://apps.apple.com/app/id1013961111';
@@ -198,7 +199,10 @@ function Camera({ entity, notify, onClips }: {
 
   return (
     <Card dim={unavailable(entity)}>
-      <ThemedText type="smallBold">{name(entity)}</ThemedText>
+      <View style={styles.syncRow}>
+        <ThemedText type="smallBold" style={styles.flex}>{name(entity)}</ThemedText>
+        <FavouriteButton entityId={entity.entity_id} />
+      </View>
       {creds && picture && (
         // Tap the snapshot to watch live.
         <Pressable

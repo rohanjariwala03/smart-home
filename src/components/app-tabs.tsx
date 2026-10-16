@@ -19,14 +19,14 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Icon sf="house.fill" />
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="devices">
+        <NativeTabs.Trigger.Label>Devices</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="lightbulb.2.fill" />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="cameras">
         <NativeTabs.Trigger.Label>Cameras</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="video.fill" />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="scenes">
-        <NativeTabs.Trigger.Label>Scenes</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="sparkles" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="status">

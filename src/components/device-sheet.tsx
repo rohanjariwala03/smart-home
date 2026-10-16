@@ -7,6 +7,7 @@ import { Chip } from '@/components/chip';
 import { ActivityCard, AwayCard, NameRoomCard, TimerCard } from '@/components/device-extras';
 import { ScheduleCard } from '@/components/schedule-card';
 import { Card } from '@/components/screen';
+import { FavouriteButton } from '@/favourites';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Toggle } from '@/components/toggle';
@@ -61,6 +62,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
             <ThemedText type="subtitle" numberOfLines={1} style={styles.flex}>
               {name(entity)}
             </ThemedText>
+            {domain !== 'alarm_control_panel' && <FavouriteButton entityId={entity.entity_id} />}
             <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>
               <ThemedText type="linkPrimary">Done</ThemedText>
             </Pressable>

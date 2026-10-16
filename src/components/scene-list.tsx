@@ -4,14 +4,14 @@ import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
 import { SceneEditor } from '@/components/scene-editor';
-import { Card, Screen } from '@/components/screen';
+import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { byDomain, name, useHA } from '@/ha';
 import { isAppScene, runScene } from '@/scenes';
 
 // Scenes made here (HA scripts, see src/scenes.ts) plus any scene or script made in Home Assistant.
-export default function ScenesScreen() {
+export function SceneList() {
   const { conn, creds, entities } = useHA();
   const [editing, setEditing] = useState<string | true>(); // script entity, or true for a new scene
   const [running, setRunning] = useState<string>();
@@ -25,7 +25,13 @@ export default function ScenesScreen() {
   };
 
   return (
-    <Screen title="Scenes" action={creds && <Chip icon="plus" label="New scene" onPress={() => setEditing(true)} />}>
+    <View style={styles.section}>
+      <View style={styles.row}>
+        <ThemedText type="smallBold" themeColor="textSecondary" style={styles.flex}>
+          Scenes
+        </ThemedText>
+        {creds && <Chip icon="plus" label="New scene" onPress={() => setEditing(true)} />}
+      </View>
       {byDomain(entities, 'scene', 'script').map((e) => (
         <Pressable key={e.entity_id} accessibilityRole="button" accessibilityLabel={`Run ${name(e)}`} onPress={() => run(e.entity_id)}>
           {({ pressed }) => (
@@ -48,11 +54,12 @@ export default function ScenesScreen() {
         apply when run from this app.
       </ThemedText>
       {editing && <SceneEditor entityId={editing === true ? undefined : editing} onClose={() => setEditing(undefined)} />}
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  section: { gap: Spacing.two },
 });
