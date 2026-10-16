@@ -28,7 +28,7 @@ const NONE: Announce = { echoes: [], cameras: [], health: false };
 
 /** Alexa Media Player's Echos: each has a notify.alexa_media_<x> service and a media_player.<x> entity. */
 function useEchoes() {
-  const { conn, entities } = useHA();
+  const { conn, entities, devices } = useHA();
   const [services, setServices] = useState<string[]>();
   useEffect(() => {
     if (!conn) return;
@@ -39,7 +39,8 @@ function useEchoes() {
     installed: services.includes('alexa_media'),
     echoes: services.flatMap((s) => {
       const e = s.startsWith('alexa_media_') && entities[`media_player.${s.slice('alexa_media_'.length)}`];
-      return e ? [e] : [];
+      // The Alexa phone app shows up too ("This Device") but can't play announcements.
+      return e && !devices[e.entity_id]?.model?.startsWith('Alexa Mobile') ? [e] : [];
     }),
   };
 }
