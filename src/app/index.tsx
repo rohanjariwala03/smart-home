@@ -4,7 +4,7 @@ import { Alert, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-
 
 import { CameraStrip } from '@/components/camera-strip';
 import { Chip } from '@/components/chip';
-import { allDevices, domainOf, GAP, ICONS, Tile, tileWidth } from '@/components/device-tile';
+import { active, allDevices, domainOf, GAP, ICONS, Tile, tileWidth } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { FavouritesSheet } from '@/components/favourites-sheet';
 import { Card, Screen } from '@/components/screen';
@@ -27,7 +27,7 @@ export default function HomeScreen() {
   const [editing, setEditing] = useState(false);
   const { width } = useWindowDimensions();
 
-  const on = allDevices(entities, registry).filter((e) => e.state === 'on').length;
+  const on = allDevices(entities, registry).filter(active).length;
   const pinned = (favourites ?? []).flatMap((id) => (entities[id] ? [entities[id]] : []));
   const cameras = pinned.filter((e) => e.attributes.snapshot_of).map((e) => e.entity_id);
   const scenes = pinned.filter((e) => ['scene', 'script'].includes(domainOf(e)));

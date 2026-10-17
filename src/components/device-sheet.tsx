@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
-import { ActivityCard, AwayCard, NameRoomCard, TimerCard } from '@/components/device-extras';
+import { ActivityCard, AwayCard, NameRoomCard, RenameButton, TimerCard } from '@/components/device-extras';
 import { ScheduleCard } from '@/components/schedule-card';
 import { Card } from '@/components/screen';
 import { FavouriteButton } from '@/favourites';
@@ -12,7 +12,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { armStatus, Toggle } from '@/components/toggle';
 import { Spacing } from '@/constants/theme';
-import { deviceName, name, unavailable, useHA, type Device } from '@/ha';
+import { deviceName, name, playerOn, unavailable, useHA, type Device } from '@/ha';
 import { GoveeCard } from '@/govee';
 
 const COLOR_MODES = ['hs', 'rgb', 'rgbw', 'rgbww', 'xy'];
@@ -42,6 +42,12 @@ const SWITCHABLE = ['light', 'switch', 'fan', 'input_boolean'];
 const PAUSE = 4;
 const RETURN_HOME = 16;
 const LOCATE = 512;
+// media_player features
+const PLAY_PAUSE = 1;
+const MUTE = 8;
+const PREVIOUS = 16;
+const NEXT = 32;
+const VOLUME_STEP = 1024;
 
 /** Everything about one device: its controls, schedules, and the device's other entities (energy, LED, …). */
 export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: () => void }) {
@@ -62,6 +68,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
             <ThemedText type="subtitle" numberOfLines={1} style={styles.flex}>
               {name(entity)}
             </ThemedText>
+            <RenameButton entity={entity} />
             {domain !== 'alarm_control_panel' && <FavouriteButton entityId={entity.entity_id} />}
             <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>
               <ThemedText type="linkPrimary">Done</ThemedText>
@@ -72,6 +79,8 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
             <LightControls entity={entity} />
           ) : domain === 'vacuum' ? (
             <VacuumControls entity={entity} />
+          ) : domain === 'media_player' ? (
+            <MediaControls entity={entity} />
           ) : domain === 'alarm_control_panel' ? (
             <Card dim={unavailable(entity)}>
               <Toggle
@@ -92,7 +101,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
 
           {domain === 'light' && <GoveeCard device={device} />}
 
-          {SWITCHABLE.includes(domain) && <TimerCard entity={entity} />}
+          {(SWITCHABLE.includes(domain) || domain === 'media_player') && <TimerCard entity={entity} />}
 
           <ScheduleCard entity={entity} />
 
@@ -257,6 +266,59 @@ function VacuumControls({ entity }: { entity: HassEntity }) {
             disabled={!rooms.length}
             onPress={() => call('sharkiq', 'clean_room', { entity_id: entity.entity_id, rooms }).then(() => setRooms([]))}
           />
+        </Card>
+      )}
+    </>
+  );
+}
+
+function MediaControls({ entity }: { entity: HassEntity }) {
+  const { call } = useHA();
+  const a = entity.attributes;
+  const f: number = a.supported_features ?? 0;
+  const on = playerOn(entity);
+  const mp = (service: string, data?: object) => call('media_player', service, { entity_id: entity.entity_id, ...data });
+  const sources: string[] = a.source_list ?? [];
+
+  return (
+    <>
+      <Card dim={unavailable(entity)}>
+        <Toggle
+          entity={entity}
+          label="Power"
+          isOn={on}
+          onChange={(v) => mp(v ? 'turn_on' : 'turn_off')}
+          status={(v) => (v ? (a.media_title ?? a.app_name ?? 'On') : 'Off')}
+        />
+        {on && (
+          <View style={styles.wrap}>
+            {f & VOLUME_STEP ? <Chip icon="speaker.wave.1.fill" label="Quieter" onPress={() => mp('volume_down')} /> : null}
+            {f & VOLUME_STEP ? <Chip icon="speaker.wave.3.fill" label="Louder" onPress={() => mp('volume_up')} /> : null}
+            {f & MUTE ? (
+              <Chip
+                icon="speaker.slash.fill"
+                label={a.is_volume_muted ? 'Unmute' : 'Mute'}
+                selected={!!a.is_volume_muted}
+                onPress={() => mp('volume_mute', { is_volume_muted: !a.is_volume_muted })}
+              />
+            ) : null}
+            {f & PREVIOUS ? <Chip icon="backward.fill" label="Back" onPress={() => mp('media_previous_track')} /> : null}
+            {f & PLAY_PAUSE ? (
+              <Chip icon={entity.state === 'playing' ? 'pause.fill' : 'play.fill'} label={entity.state === 'playing' ? 'Pause' : 'Play'} onPress={() => mp('media_play_pause')} />
+            ) : null}
+            {f & NEXT ? <Chip icon="forward.fill" label="Next" onPress={() => mp('media_next_track')} /> : null}
+          </View>
+        )}
+      </Card>
+
+      {on && sources.length > 0 && (
+        <Card>
+          <ThemedText>Input</ThemedText>
+          <View style={styles.wrap}>
+            {sources.map((s) => (
+              <Chip key={s} label={s} selected={a.source === s} onPress={() => mp('select_source', { source: s })} />
+            ))}
+          </View>
         </Card>
       )}
     </>

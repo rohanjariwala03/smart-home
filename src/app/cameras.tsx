@@ -18,6 +18,7 @@ import {
 import { ArmingCard, MotionLightCard } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
 import { ClipsSheet } from '@/components/clips';
+import { RenameButton } from '@/components/device-extras';
 import { DeviceSheet } from '@/components/device-sheet';
 import { LiveGrid } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
@@ -203,6 +204,7 @@ function Camera({ entity, notify, onClips }: {
     <Card dim={unavailable(entity)}>
       <View style={styles.syncRow}>
         <ThemedText type="smallBold" style={styles.flex}>{name(entity)}</ThemedText>
+        <RenameButton entity={entity} />
         <FavouriteButton entityId={entity.entity_id} />
       </View>
       {creds && picture && (

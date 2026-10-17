@@ -4,7 +4,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AddDeviceSheet } from '@/components/add-device';
 import { Chip } from '@/components/chip';
-import { allDevices, GAP, Tile, tileWidth } from '@/components/device-tile';
+import { active, allDevices, GAP, Tile, tileWidth } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { SceneList } from '@/components/scene-list';
 import { Card, Screen } from '@/components/screen';
@@ -24,7 +24,7 @@ export default function DevicesScreen() {
   const { width } = useWindowDimensions();
 
   const devices = allDevices(entities, registry);
-  const on = devices.filter((e) => e.state === 'on');
+  const on = devices.filter(active);
 
   const rooms: Record<string, HassEntity[]> = {};
   for (const e of devices) (rooms[areas[e.entity_id] ?? OTHER] ??= []).push(e);

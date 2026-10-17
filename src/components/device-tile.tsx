@@ -10,7 +10,7 @@ import { until, useTimer } from '@/components/device-extras';
 import { VACUUM_STATE } from '@/components/device-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { byDomain, name, switchables, unavailable, useHA, type Device } from '@/ha';
+import { byDomain, name, playerOn, players, switchables, unavailable, useHA, type Device } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 import { useOptimistic } from '@/optimistic';
 
@@ -22,15 +22,19 @@ export const ICONS: Record<string, SFSymbol> = {
   scene: 'sparkles',
   script: 'play.fill',
   vacuum: 'robotic.vacuum.fill',
+  media_player: 'tv.fill',
 };
 export const GAP = 12;
 const YELLOW: number[] = [255, 214, 10];
 
 export const domainOf = (e: HassEntity) => e.entity_id.split('.')[0];
 
+/** On, for counting and "All off": a TV that's playing or idle counts too. */
+export const active = (e: HassEntity) => e.state === 'on' || (domainOf(e) === 'media_player' && playerOn(e));
+
 /** Everything the app can switch, by name. Switches that belong to a camera (Blink motion detection) live on the Cameras tab instead. */
 export const allDevices = (entities: HassEntities, registry: Record<string, Device>) =>
-  [...switchables(entities, registry), ...byDomain(entities, 'vacuum')].sort((a, b) => name(a).localeCompare(name(b)));
+  [...switchables(entities, registry), ...byDomain(entities, 'vacuum'), ...players(entities, registry)].sort((a, b) => name(a).localeCompare(name(b)));
 
 /** Two tiles per row, edge to edge inside the screen padding. */
 export const tileWidth = (screenWidth: number) => (screenWidth - Spacing.three * 2 - GAP) / 2;
@@ -45,7 +49,8 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
   const theme = useTheme();
   const off = unavailable(entity);
   const vacuum = domainOf(entity) === 'vacuum';
-  const shown = useOptimistic(entity, entity.state === (vacuum ? 'cleaning' : 'on'));
+  const media = domainOf(entity) === 'media_player';
+  const shown = useOptimistic(entity, vacuum ? entity.state === 'cleaning' : active(entity));
   const isOn = shown.isOn;
   const [r, g, b] = (entity.attributes.rgb_color as number[] | undefined) ?? YELLOW;
   const darkTint = 0.299 * r + 0.587 * g + 0.114 * b < 150;
@@ -54,6 +59,7 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
     off ? 'Unavailable'
     : vacuum ? (VACUUM_STATE[entity.state] ?? entity.state)
     : !isOn ? 'Off'
+    : media ? (entity.attributes.app_name ?? (entity.state === 'playing' ? 'Playing' : 'On'))
     : brightness ? `On · ${Math.round(brightness / 2.55)}%`
     : 'On';
   const timer = end ? ` · ⏱ ${until(end)}` : '';

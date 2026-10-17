@@ -1,6 +1,7 @@
+import { SymbolView } from 'expo-symbols';
 import type { HassEntity } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
-import { Button, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Alert, Button, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
 import { Card } from '@/components/screen';
@@ -233,6 +234,33 @@ export function ActivityCard({ entity }: { entity: HassEntity }) {
 type Area = { area_id: string; name: string };
 
 /** Rename the device and move it to a room (HA areas). Admin token needed. */
+/** Pencil that renames the entity in Home Assistant, so every screen, widget and Siri use the new name. */
+export function RenameButton({ entity }: { entity: HassEntity }) {
+  const { conn } = useHA();
+  const theme = useTheme();
+  const save = (value?: string) =>
+    conn
+      ?.sendMessagePromise({ type: 'config/entity_registry/update', entity_id: entity.entity_id, name: value?.trim() || null })
+      .catch((e) => Alert.alert('Couldn’t rename', e?.code === 'unauthorized' ? ADMIN_ONLY : (e?.message ?? String(e))));
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Rename ${name(entity)}`}
+      hitSlop={12}
+      onPress={() =>
+        Alert.prompt(
+          'Rename',
+          'Leave empty to go back to the original name.',
+          [{ text: 'Cancel', style: 'cancel' }, { text: 'Save', isPreferred: true, onPress: save }],
+          'plain-text',
+          name(entity),
+        )
+      }>
+      <SymbolView name="pencil" size={20} tintColor={theme.textSecondary} />
+    </Pressable>
+  );
+}
+
 export function NameRoomCard({ entity, device }: { entity: HassEntity; device?: Device }) {
   const { conn, areas, reloadRegistry } = useHA();
   const theme = useTheme();

@@ -201,6 +201,21 @@ export const unavailable = (e?: HassEntity) => !e || e.state === 'unavailable' |
 
 export const deviceName = (d?: Device) => d?.name_by_user ?? d?.name ?? undefined;
 
+/** TVs and other players that can be switched on, without Echos (they speak announcements). A TV added twice (Cast
+ * plus its own integration) shows once, as the one that says it's a TV: that one can wake it. */
+export function players(entities: HassEntities, devices: Record<string, Device>) {
+  const best = new Map<string, HassEntity>();
+  for (const e of byDomain(entities, 'media_player')) {
+    if (/amazon/i.test(devices[e.entity_id]?.manufacturer ?? '') || !((e.attributes.supported_features ?? 0) & 128)) continue; // 128 = TURN_ON
+    const key = deviceName(devices[e.entity_id]) ?? e.entity_id;
+    const had = best.get(key);
+    if (!had || (e.attributes.device_class === 'tv' && had.attributes.device_class !== 'tv')) best.set(key, e);
+  }
+  return [...best.values()];
+}
+
+export const playerOn = (e: HassEntity) => !['off', 'standby', 'unavailable', 'unknown'].includes(e.state);
+
 /** Lights and switches people control: not Blink's motion-detection switches or other parts of a camera. */
 export function switchables(entities: HassEntities, devices: Record<string, Device>) {
   const cameraDevices = new Set(
