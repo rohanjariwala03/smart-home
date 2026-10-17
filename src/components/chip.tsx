@@ -3,7 +3,6 @@ import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { Pressable, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export function Chip({ icon, label, selected, disabled, onPress }: {
@@ -30,8 +29,8 @@ export function Chip({ icon, label, selected, disabled, onPress }: {
         disabled && styles.dim,
         pressed && styles.pressed,
       ]}>
-      {icon && <SymbolView name={icon} size={16} tintColor={fg} />}
-      <ThemedText type="smallBold" style={{ color: fg }}>
+      {icon && <SymbolView name={icon} size={14} tintColor={fg} />}
+      <ThemedText type="small" style={[styles.label, { color: fg }]}>
         {label}
       </ThemedText>
     </Pressable>
@@ -42,11 +41,12 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 999,
   },
+  label: { fontWeight: '600' },
   dim: { opacity: 0.45 },
   pressed: { opacity: 0.7, transform: [{ scale: 0.97 }] },
 });

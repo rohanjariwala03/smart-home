@@ -76,7 +76,7 @@ export default function DevicesScreen() {
       )}
       {devices.length > 0 && (
         <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
-          Tap to switch on or off · ⚙︎ or hold for timers, schedules and ☆ favourite
+          Tap an icon to switch it · tap a name for timers, schedules and ☆ favourite
         </ThemedText>
       )}
 

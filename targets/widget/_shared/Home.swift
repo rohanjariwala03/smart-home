@@ -64,6 +64,10 @@ struct HAState: Decodable {
 
 enum HA {
   static let domains = ["light", "switch", "fan", "input_boolean", "scene", "script"]
+  /// Alexa Media Player's switches on each Echo (no device registry here, so by name; the app uses the registry).
+  static func isEchoSetting(_ id: String) -> Bool {
+    id.hasPrefix("switch.") && ["_do_not_disturb", "_shuffle", "_repeat", "_amazon_kids"].contains { id.hasSuffix($0) }
+  }
 
   struct Creds: Decodable { let url: String; let token: String }
 
@@ -111,7 +115,7 @@ enum HA {
 
   static func states() async throws -> [HAState] {
     try JSONDecoder().decode([HAState].self, from: await request("/api/states"))
-      .filter { domains.contains($0.domain) && !$0.entity_id.hasPrefix("switch.blink_proxy_") && !$0.entity_id.hasSuffix("_motion_detection") }
+      .filter { domains.contains($0.domain) && !$0.entity_id.hasPrefix("switch.blink_proxy_") && !$0.entity_id.hasSuffix("_motion_detection") && !HA.isEchoSetting($0.entity_id) }
       .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
   }
 

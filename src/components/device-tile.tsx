@@ -25,7 +25,7 @@ export const ICONS: Record<string, SFSymbol> = {
   media_player: 'tv.fill',
 };
 export const GAP = 12;
-const YELLOW: number[] = [255, 214, 10];
+const AMBER: number[] = [255, 179, 0];
 
 export const domainOf = (e: HassEntity) => e.entity_id.split('.')[0];
 
@@ -39,9 +39,12 @@ export const allDevices = (entities: HassEntities, registry: Record<string, Devi
 /** Two tiles per row, edge to edge inside the screen padding. */
 export const tileWidth = (screenWidth: number) => (screenWidth - Spacing.three * 2 - GAP) / 2;
 
+// The colour a device glows in when on (a light uses its own colour).
+const TINT: Record<string, number[]> = { fan: [0, 188, 212], vacuum: [43, 182, 115], media_player: [124, 131, 253] };
+
 /**
- * A device you tap to switch on or off; the gear (or a long press) opens its settings. Flips the moment it's tapped
- * and fades between colours. A change made elsewhere (Alexa, a schedule) gives a light tap while you're looking.
+ * A device, Home Assistant style: tap the icon to switch it, tap the rest for its settings. The icon flips the moment
+ * it's tapped and fades between colours; a change made elsewhere (Alexa, a schedule) gives a light tap while you look.
  */
 export function Tile({ entity, width, onSettings }: { entity: HassEntity; width: number; onSettings: () => void }) {
   const { call } = useHA();
@@ -52,19 +55,17 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
   const media = domainOf(entity) === 'media_player';
   const shown = useOptimistic(entity, vacuum ? entity.state === 'cleaning' : active(entity));
   const isOn = shown.isOn;
-  const [r, g, b] = (entity.attributes.rgb_color as number[] | undefined) ?? YELLOW;
-  const darkTint = 0.299 * r + 0.587 * g + 0.114 * b < 150;
+  const [r, g, b] = (entity.attributes.rgb_color as number[] | undefined) ?? TINT[domainOf(entity)] ?? AMBER;
   const brightness: number | undefined = entity.attributes.brightness;
   const state =
     off ? 'Unavailable'
     : vacuum ? (VACUUM_STATE[entity.state] ?? entity.state)
     : !isOn ? 'Off'
     : media ? (entity.attributes.app_name ?? (entity.state === 'playing' ? 'Playing' : 'On'))
-    : brightness ? `On · ${Math.round(brightness / 2.55)}%`
+    : brightness ? `${Math.round(brightness / 2.55)}%`
     : 'On';
   const timer = end ? ` · ⏱ ${until(end)}` : '';
 
-  const onBg = `rgba(${r},${g},${b},0.28)`;
   const progress = useSharedValue(isOn ? 1 : 0);
   const pop = useSharedValue(1);
   const focused = useIsFocused();
@@ -78,71 +79,64 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
     if (!tapped.current && focused) Haptics.selectionAsync();
     tapped.current = false;
   }, [isOn, focused, progress, pop]);
-  const bg = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(progress.value, [0, 1], [theme.backgroundElement, onBg]),
+  const onBg = `rgba(${r},${g},${b},0.2)`;
+  const iconStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(progress.value, [0, 1], [theme.backgroundSelected, onBg]),
+    transform: [{ scale: pop.value }],
   }));
-  const iconPop = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
+
+  const toggle = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    tapped.current = true;
+    // Vacuums have no toggle: tap starts, or pauses while cleaning.
+    shown.set(!isOn, () =>
+      vacuum
+        ? call('vacuum', isOn ? 'pause' : 'start', { entity_id: entity.entity_id })
+        : call(domainOf(entity), isOn ? 'turn_off' : 'turn_on', { entity_id: entity.entity_id }),
+    );
+  };
 
   return (
     <Pressable
-      disabled={off}
-      accessibilityRole="switch"
-      accessibilityLabel={name(entity)}
-      accessibilityState={{ checked: isOn, disabled: off }}
-      accessibilityHint="Hold for timers, schedules and settings"
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        tapped.current = true;
-        // Vacuums have no toggle: tap starts, or pauses while cleaning.
-        shown.set(!isOn, () =>
-          vacuum
-            ? call('vacuum', isOn ? 'pause' : 'start', { entity_id: entity.entity_id })
-            : call(domainOf(entity), isOn ? 'turn_off' : 'turn_on', { entity_id: entity.entity_id }),
-        );
-      }}
-      onLongPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        onSettings();
-      }}
-      style={({ pressed }) => [{ width }, off && styles.dim, pressed && styles.pressed]}>
-      <Animated.View style={[styles.tile, bg]}>
-        <View style={styles.tileTop}>
-          <Animated.View style={[styles.icon, { backgroundColor: isOn ? `rgb(${r},${g},${b})` : theme.backgroundSelected }, iconPop]}>
-            <SymbolView
-              name={ICONS[domainOf(entity)] ?? 'power'}
-              size={20}
-              tintColor={isOn ? (darkTint ? '#fff' : '#000') : theme.textSecondary}
-            />
-          </Animated.View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${name(entity)} settings`}
-            hitSlop={12}
-            onPress={onSettings}
-            style={styles.gear}>
-            <SymbolView name="gearshape.fill" size={18} tintColor={theme.textSecondary} />
-          </Pressable>
-        </View>
-        <View>
-          <ThemedText numberOfLines={1} style={styles.tileName}>
-            {name(entity)}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-            {state}
-            {timer}
-          </ThemedText>
-        </View>
-      </Animated.View>
+      accessibilityRole="button"
+      accessibilityLabel={`${name(entity)}, ${state}`}
+      accessibilityHint="Opens timers, schedules and settings"
+      onPress={onSettings}
+      style={({ pressed }) => [styles.tile, { width, backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
+      <Pressable
+        disabled={off}
+        accessibilityRole="switch"
+        accessibilityLabel={name(entity)}
+        accessibilityState={{ checked: isOn, disabled: off }}
+        hitSlop={8}
+        onPress={toggle}>
+        <Animated.View style={[styles.icon, iconStyle, off && styles.dim]}>
+          <SymbolView
+            name={ICONS[domainOf(entity)] ?? 'power'}
+            size={18}
+            tintColor={isOn ? `rgb(${r},${g},${b})` : theme.textSecondary}
+          />
+        </Animated.View>
+      </Pressable>
+      <View style={styles.text}>
+        <ThemedText type="small" numberOfLines={1} style={styles.tileName}>
+          {name(entity)}
+        </ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.state}>
+          {state}
+          {timer}
+        </ThemedText>
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  tile: { borderRadius: 20, padding: 14, gap: Spacing.three, minHeight: 112, justifyContent: 'space-between' },
-  tileTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  gear: { padding: 4 },
-  icon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  tileName: { fontWeight: '600' },
+  tile: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 14, paddingHorizontal: 12, minHeight: 64 },
+  icon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  text: { flex: 1 },
+  tileName: { fontWeight: '600', lineHeight: 18 },
+  state: { fontSize: 13, lineHeight: 17 },
   dim: { opacity: 0.45 },
-  pressed: { opacity: 0.7, transform: [{ scale: 0.97 }] },
+  pressed: { opacity: 0.7 },
 });

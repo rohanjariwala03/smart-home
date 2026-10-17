@@ -96,9 +96,11 @@ final class Home: ObservableObject {
   }
 
   var devices: [WState] {
-    pinned(states.filter {
-      ["light", "switch", "fan", "input_boolean"].contains($0.domain)
-        && !$0.entity_id.hasPrefix("switch.blink_proxy_") && !$0.entity_id.hasSuffix("_motion_detection")
+    pinned(states.filter { s in
+      ["light", "switch", "fan", "input_boolean"].contains(s.domain)
+        && !s.entity_id.hasPrefix("switch.blink_proxy_") && !s.entity_id.hasSuffix("_motion_detection")
+        // Alexa Media Player's per-Echo settings, not devices.
+        && !["_do_not_disturb", "_shuffle", "_repeat", "_amazon_kids"].contains { s.entity_id.hasSuffix($0) }
     })
   }
 

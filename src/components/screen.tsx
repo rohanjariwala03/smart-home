@@ -31,8 +31,8 @@ export function Screen({ title, subtitle, action, children }: {
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.header}>
             <View style={styles.flex}>
-              <ThemedText type="subtitle">{title}</ThemedText>
-              {subtitle && <ThemedText themeColor="textSecondary">{subtitle}</ThemedText>}
+              <ThemedText style={styles.title}>{title}</ThemedText>
+              {subtitle && <ThemedText type="small" themeColor="textSecondary">{subtitle}</ThemedText>}
             </View>
             {action}
           </View>
@@ -83,12 +83,13 @@ export function Disclosure({ title, summary, children }: { title: string; summar
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  title: { fontSize: 34, lineHeight: 41, fontWeight: '700', letterSpacing: 0.4 },
   disclosure: { paddingVertical: Spacing.one },
   summary: { flexShrink: 1 },
   pressed: { opacity: 0.6 },
   header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  content: { padding: Spacing.three, gap: Spacing.three, paddingBottom: BottomTabInset + Spacing.three },
+  content: { padding: Spacing.three, gap: Spacing.four, paddingBottom: BottomTabInset + Spacing.three },
   banner: { padding: Spacing.three, borderRadius: 12 },
-  card: { padding: Spacing.three, borderRadius: 16, gap: Spacing.two },
+  card: { padding: Spacing.three, borderRadius: 14, gap: Spacing.two },
   dim: { opacity: 0.45 },
 });
