@@ -252,6 +252,10 @@ export const binaries = (entities: HassEntities, cls: string) =>
 export const mainEntities = (entities: HassEntities) =>
   byDomain(entities, ...MAIN).filter((e) => !e.entity_id.startsWith('switch.blink_proxy_') && !e.attributes.proxy_slug);
 
+/** `w` without the entities in `skip`. */
+export const without = (w: Watched, skip: string[] = []) =>
+  Object.fromEntries(Object.entries(w).map(([k, ids]) => [k, ids.filter((id) => !skip.includes(id))])) as Watched;
+
 /** What health alerts watch, from what's in HA right now. */
 export function watched(entities: HassEntities): Watched {
   return {
@@ -319,6 +323,7 @@ export type Announce = {
   cameras: AnnounceCamera[];
   health: boolean;
   quiet?: { from: string; to: string }; // "HH:MM:SS"; nothing is spoken from `from` until `to`
+  skip?: string[]; // watched entities whose problems aren't spoken (kept in the automation's variables)
 };
 
 /** Echo announcements through Alexa Media Player (HACS): doorbell, camera motion and health problems. */
@@ -328,8 +333,9 @@ export function setAnnounce(creds: Creds, a: Announce, w: Watched) {
     description: 'Created by the Smart Home app (Settings › Announcements). Needs Alexa Media Player.',
     triggers: [
       ...a.cameras.map((c) => ({ trigger: 'state', entity_id: c.motion, to: 'on', id: `${c.doorbell ? 'doorbell' : 'motion'}|${c.name}` })),
-      ...(a.health ? healthTriggers(w, 'health|') : []),
+      ...(a.health ? healthTriggers(without(w, a.skip), 'health|') : []),
     ],
+    variables: { skip: a.skip ?? [] },
     // A time condition from `to` until `from` wraps past midnight when needed.
     conditions: a.quiet ? [{ condition: 'time', after: a.quiet.to, before: a.quiet.from }] : [],
     actions: [
@@ -362,6 +368,7 @@ export function announceOf(config?: Record<string, any>): Announce | undefined {
     }),
     health: triggers.some((t) => String(t.id ?? '').startsWith('health|')),
     quiet: quiet && { from: quiet.before, to: quiet.after },
+    skip: config.variables?.skip ?? [],
   };
 }
 

@@ -16,16 +16,17 @@ import {
   useAutomationConfig,
   watched,
   watchedOf,
+  without,
   type Announce,
   type AnnounceCamera,
 } from '@/automations';
 import { AddDeviceSheet } from '@/components/add-device';
 import { Row, Time } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
-import { Card } from '@/components/screen';
+import { Card, Disclosure } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { byDomain, name, unavailable, useHA } from '@/ha';
+import { byDomain, deviceName, name, unavailable, useHA } from '@/ha';
 
 // Alexa Media Player (github.com/alandtse/alexa_media_player), installed from HACS.
 const AMP_HACS = '/_my_redirect/hacs_repository?owner=alandtse&repository=alexa_media_player&category=integration';
@@ -52,7 +53,7 @@ function useEchoes() {
 
 /** Speak alerts on Echo speakers, and how to have Siri read them on the iPhone. */
 export function AnnounceSettings() {
-  const { creds, conn, entities, call } = useHA();
+  const { creds, conn, entities, devices, call } = useHA();
   const found = useEchoes();
   const auto = useAutomation(ANNOUNCE_ID);
   const config = useAutomationConfig(ANNOUNCE_ID);
@@ -75,7 +76,7 @@ export function AnnounceSettings() {
     .sort((x, y) => Number(y.doorbell) - Number(x.doorbell));
 
   // Keep the health list current when devices are added (same as the phone health alert).
-  const want = JSON.stringify(watched(entities));
+  const want = JSON.stringify(without(watched(entities), saved?.skip));
   const have = config && JSON.stringify(watchedOf(config.triggers, 'health|'));
   useEffect(() => {
     const current = announceOf(config);
@@ -91,6 +92,18 @@ export function AnnounceSettings() {
       (e) => setNote(e?.message ?? String(e)),
     );
   };
+  // Health problems by device (a camera's battery and its offline state are one switch).
+  const groups = new Map<string, { name: string; ids: string[] }>();
+  for (const id of new Set(Object.values(watched(entities)).flat())) {
+    const d = devices[id];
+    const g = groups.get(d?.id ?? id) ?? { name: deviceName(d) ?? (entities[id] ? name(entities[id]) : id), ids: [] };
+    g.ids.push(id);
+    groups.set(d?.id ?? id, g);
+  }
+  const skip = a.skip ?? [];
+  const spoken = (g: { ids: string[] }) => !g.ids.some((id) => skip.includes(id));
+  const muted = [...groups.values()].filter((g) => !spoken(g)).length;
+
   const toggle = <T,>(list: T[], item: T, same: (x: T) => boolean) => (list.some(same) ? list.filter((x) => !same(x)) : [...list, item]);
 
   const test = () =>
@@ -141,6 +154,21 @@ export function AnnounceSettings() {
             />
           ))}
           <Row label="Home problems (offline, low battery)" value={a.health} onChange={(health) => save({ ...a, health })} />
+          {a.health && (
+            <Disclosure title="Which devices" summary={muted ? `${muted} muted` : 'All'}>
+              {[...groups.values()]
+                .sort((x, y) => x.name.localeCompare(y.name))
+                .map((g) => (
+                  <Row
+                    key={g.ids[0]}
+                    label={g.name}
+                    value={spoken(g)}
+                    onChange={(on) => save({ ...a, skip: on ? skip.filter((id) => !g.ids.includes(id)) : [...skip, ...g.ids] })}
+                  />
+                ))}
+              <ThemedText type="small" themeColor="textSecondary">Muted devices still alert your phone.</ThemedText>
+            </Disclosure>
+          )}
           <Row
             label="Quiet hours"
             value={!!a.quiet}
