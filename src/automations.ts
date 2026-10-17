@@ -320,21 +320,47 @@ export function setHealthAlerts(creds: Creds, notify: string, w: Watched) {
 export type AnnounceCamera = { motion: string; name: string; doorbell: boolean };
 export type Announce = {
   echoes: string[]; // Alexa Media Player media_player entities
-  cameras: AnnounceCamera[];
-  health: boolean;
   quiet?: { from: string; to: string }; // "HH:MM:SS"; nothing is spoken from `from` until `to`
-  skip?: string[]; // watched entities whose problems aren't spoken (kept in the automation's variables)
+  skip?: string[]; // entities turned off in their device's settings (kept in the automation's variables)
 };
 
+/** Cameras with motion (the proxy's snapshot cameras); the doorbell first. */
+export const announceCameras = (entities: HassEntities): AnnounceCamera[] =>
+  byDomain(entities, 'camera')
+    .filter((e) => e.attributes.snapshot_of && entities[`binary_sensor.${e.entity_id.split('.')[1]}_motion`])
+    .map((e) => ({
+      motion: `binary_sensor.${e.entity_id.split('.')[1]}_motion`,
+      name: e.attributes.friendly_name ?? e.entity_id,
+      doorbell: Object.values(entities).some(
+        (l) => l.attributes.proxy_slug === e.attributes.snapshot_of && l.attributes.camera_type === 'doorbell',
+      ),
+    }))
+    .sort((x, y) => Number(y.doorbell) - Number(x.doorbell));
+
+/** Everything that can be announced: camera motion, then each device's problems. */
+export const announceable = (entities: HassEntities) => [
+  ...announceCameras(entities).map((c) => c.motion),
+  ...new Set(Object.values(watched(entities)).flat()),
+];
+
+/** Every camera and device is announced unless it's in `a.skip`. */
+export const announceTriggers = (a: Announce, entities: HassEntities) => [
+  ...announceCameras(entities)
+    .filter((c) => !a.skip?.includes(c.motion))
+    .map((c) => ({ trigger: 'state', entity_id: c.motion, to: 'on', id: `${c.doorbell ? 'doorbell' : 'motion'}|${c.name}` })),
+  ...healthTriggers(without(watched(entities), a.skip), 'health|'),
+];
+
+/** Ids and entities of `triggers`: what to compare to see if the automation is out of date. */
+export const triggerKey = (triggers: any[] = []) =>
+  JSON.stringify(triggers.flatMap((t) => [t.id, ...[t.entity_id ?? []].flat()]).sort());
+
 /** Echo announcements through Alexa Media Player (HACS): doorbell, camera motion and health problems. */
-export function setAnnounce(creds: Creds, a: Announce, w: Watched) {
+export function setAnnounce(creds: Creds, a: Announce, entities: HassEntities) {
   return rest(creds, 'POST', ANNOUNCE_ID, {
     alias: 'Smart Home: Echo announcements',
-    description: 'Created by the Smart Home app (Settings › Announcements). Needs Alexa Media Player.',
-    triggers: [
-      ...a.cameras.map((c) => ({ trigger: 'state', entity_id: c.motion, to: 'on', id: `${c.doorbell ? 'doorbell' : 'motion'}|${c.name}` })),
-      ...(a.health ? healthTriggers(without(w, a.skip), 'health|') : []),
-    ],
+    description: 'Created by the Smart Home app (Settings › Announcements, and Announce on Echo in each device). Needs Alexa Media Player.',
+    triggers: announceTriggers(a, entities),
     variables: { skip: a.skip ?? [] },
     // A time condition from `to` until `from` wraps past midnight when needed.
     conditions: a.quiet ? [{ condition: 'time', after: a.quiet.to, before: a.quiet.from }] : [],
@@ -358,18 +384,25 @@ const ANNOUNCE_MESSAGE = `{% set k = trigger.id.split('|') %}{% if k[0] == 'door
 
 export function announceOf(config?: Record<string, any>): Announce | undefined {
   if (!config) return undefined;
-  const triggers: any[] = config.triggers ?? [];
   const quiet = config.conditions?.[0];
   return {
     echoes: [config.actions?.[0]?.data?.target ?? []].flat(),
-    cameras: triggers.flatMap((t) => {
-      const [kind, name] = String(t.id ?? '').split('|');
-      return kind === 'doorbell' || kind === 'motion' ? [{ motion: t.entity_id, name, doorbell: kind === 'doorbell' }] : [];
-    }),
-    health: triggers.some((t) => String(t.id ?? '').startsWith('health|')),
     quiet: quiet && { from: quiet.before, to: quiet.after },
     skip: config.variables?.skip ?? [],
   };
+}
+
+/** The saved announcements, and a save that rebuilds the automation from what's in HA now (none without an Echo). */
+export function useAnnounce() {
+  const { creds, entities } = useHA();
+  const auto = useAutomation(ANNOUNCE_ID);
+  const config = useAutomationConfig(ANNOUNCE_ID);
+  const save = async (next: Announce) => {
+    if (!creds) return;
+    if (next.echoes.length) await setAnnounce(creds, next, entities);
+    else if (auto) await removeAutomation(creds, ANNOUNCE_ID);
+  };
+  return { auto, config, saved: announceOf(config), save };
 }
 
 /** The phone's notify actions from the HA companion app (notify.mobile_app_<phone>), if it's installed. */

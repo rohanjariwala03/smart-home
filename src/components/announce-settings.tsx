@@ -5,32 +5,28 @@ import { Button, Linking, StyleSheet, View } from 'react-native';
 import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 
 import {
-  ANNOUNCE_ID,
+  announceable,
+  announceCameras,
   announceOf,
+  announceTriggers,
   blinkDelay,
   blinkSignedOut,
-  removeAutomation,
-  setAnnounce,
   SIGN_IN_AGAIN,
-  useAutomation,
-  useAutomationConfig,
-  watched,
-  watchedOf,
-  without,
+  triggerKey,
+  useAnnounce,
   type Announce,
-  type AnnounceCamera,
 } from '@/automations';
 import { AddDeviceSheet } from '@/components/add-device';
 import { Row, Time } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
-import { Card, Disclosure } from '@/components/screen';
+import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { byDomain, deviceName, name, unavailable, useHA } from '@/ha';
+import { byDomain, name, unavailable, useHA } from '@/ha';
 
 // Alexa Media Player (github.com/alandtse/alexa_media_player), installed from HACS.
 const AMP_HACS = '/_my_redirect/hacs_repository?owner=alandtse&repository=alexa_media_player&category=integration';
-const NONE: Announce = { echoes: [], cameras: [], health: false };
+const NONE: Announce = { echoes: [] };
 
 /** Alexa Media Player's Echos: each has a notify.alexa_media_<x> service and a media_player.<x> entity. */
 function useEchoes() {
@@ -53,58 +49,28 @@ function useEchoes() {
 
 /** Speak alerts on Echo speakers, and how to have Siri read them on the iPhone. */
 export function AnnounceSettings() {
-  const { creds, conn, entities, devices, call } = useHA();
+  const { creds, conn, entities, call } = useHA();
   const found = useEchoes();
-  const auto = useAutomation(ANNOUNCE_ID);
-  const config = useAutomationConfig(ANNOUNCE_ID);
-  const saved = announceOf(config);
+  const { auto, config, saved, save: store } = useAnnounce();
   const [draft, setDraft] = useState<Announce>();
   const [setup, setSetup] = useState(false);
   const [note, setNote] = useState<string>();
   const a = draft ?? saved ?? NONE;
 
-  // Cameras with motion (the proxy's snapshot cameras); the doorbell first.
-  const cameras: AnnounceCamera[] = byDomain(entities, 'camera')
-    .filter((e) => e.attributes.snapshot_of && entities[`binary_sensor.${e.entity_id.split('.')[1]}_motion`])
-    .map((e) => ({
-      motion: `binary_sensor.${e.entity_id.split('.')[1]}_motion`,
-      name: name(e),
-      doorbell: Object.values(entities).some(
-        (l) => l.attributes.proxy_slug === e.attributes.snapshot_of && l.attributes.camera_type === 'doorbell',
-      ),
-    }))
-    .sort((x, y) => Number(y.doorbell) - Number(x.doorbell));
-
-  // Keep the health list current when devices are added (same as the phone health alert).
-  const want = JSON.stringify(without(watched(entities), saved?.skip));
-  const have = config && JSON.stringify(watchedOf(config.triggers, 'health|'));
+  // Rebuild when cameras or devices are added, removed or renamed.
+  const want = triggerKey(announceTriggers(saved ?? NONE, entities));
+  const have = config && triggerKey(config.triggers);
   useEffect(() => {
     const current = announceOf(config);
-    if (creds && current?.health && have && have !== want) setAnnounce(creds, current, JSON.parse(want)).catch(() => {});
-  }, [creds, config, have, want]);
+    if (current?.echoes.length && have && have !== want) store(current).catch(() => {});
+  }, [config, have, want]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = (next: Announce) => {
-    if (!creds) return;
     setDraft(next);
     setNote(undefined);
-    const empty = !next.echoes.length || (!next.cameras.length && !next.health);
-    (empty ? (auto ? removeAutomation(creds, ANNOUNCE_ID) : Promise.resolve()) : setAnnounce(creds, next, watched(entities))).catch(
-      (e) => setNote(e?.message ?? String(e)),
-    );
+    store(next).catch((e) => setNote(e?.message ?? String(e)));
   };
-  // Health problems by device (a camera's battery and its offline state are one switch).
-  const groups = new Map<string, { name: string; ids: string[] }>();
-  for (const id of new Set(Object.values(watched(entities)).flat())) {
-    const d = devices[id];
-    const g = groups.get(d?.id ?? id) ?? { name: deviceName(d) ?? (entities[id] ? name(entities[id]) : id), ids: [] };
-    g.ids.push(id);
-    groups.set(d?.id ?? id, g);
-  }
-  const skip = a.skip ?? [];
-  const spoken = (g: { ids: string[] }) => !g.ids.some((id) => skip.includes(id));
-  const muted = [...groups.values()].filter((g) => !spoken(g)).length;
-
-  const toggle = <T,>(list: T[], item: T, same: (x: T) => boolean) => (list.some(same) ? list.filter((x) => !same(x)) : [...list, item]);
+  const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
   const test = () =>
     a.echoes.length &&
@@ -140,35 +106,14 @@ export function AnnounceSettings() {
                 icon="homepod.fill"
                 label={name(e)}
                 selected={a.echoes.includes(e.entity_id)}
-                onPress={() => save({ ...a, echoes: toggle(a.echoes, e.entity_id, (x) => x === e.entity_id) })}
+                onPress={() => save({ ...a, echoes: toggle(a.echoes, e.entity_id) })}
               />
             ))}
           </View>
-          <ThemedText type="small" themeColor="textSecondary">Announce</ThemedText>
-          {cameras.map((c) => (
-            <Row
-              key={c.motion}
-              label={c.doorbell ? `${c.name}: someone’s at the door` : `${c.name}: motion`}
-              value={a.cameras.some((x) => x.motion === c.motion)}
-              onChange={() => save({ ...a, cameras: toggle(a.cameras, c, (x) => x.motion === c.motion) })}
-            />
-          ))}
-          <Row label="Home problems (offline, low battery)" value={a.health} onChange={(health) => save({ ...a, health })} />
-          {a.health && (
-            <Disclosure title="Which devices" summary={muted ? `${muted} muted` : 'All'}>
-              {[...groups.values()]
-                .sort((x, y) => x.name.localeCompare(y.name))
-                .map((g) => (
-                  <Row
-                    key={g.ids[0]}
-                    label={g.name}
-                    value={spoken(g)}
-                    onChange={(on) => save({ ...a, skip: on ? skip.filter((id) => !g.ids.includes(id)) : [...skip, ...g.ids] })}
-                  />
-                ))}
-              <ThemedText type="small" themeColor="textSecondary">Muted devices still alert your phone.</ThemedText>
-            </Disclosure>
-          )}
+          <ThemedText type="small" themeColor="textSecondary">
+            Every camera’s motion and every device’s problems (offline, low battery) are spoken. To leave one out, turn off
+            Announce on Echo in its settings (⚙︎) or on its camera card.
+          </ThemedText>
           <Row
             label="Quiet hours"
             value={!!a.quiet}
@@ -181,7 +126,7 @@ export function AnnounceSettings() {
             </View>
           )}
           {!a.echoes.length && <ThemedText type="small" themeColor="textSecondary">Pick at least one Echo.</ThemedText>}
-          {a.echoes.length > 0 && (a.cameras.length > 0 || a.health) && <Blockers list={blockers(entities, a, auto)} call={call} />}
+          {a.echoes.length > 0 && <Blockers list={blockers(entities, a, auto)} call={call} />}
           <Button title="Test announcement" disabled={!a.echoes.length} onPress={test} />
           <ThemedText type="small" themeColor="textSecondary">
             Motion only counts once Blink saves a clip (a Blink subscription, or a USB drive in the Sync Module), and the Echo may speak up to {blinkDelay(entities)} later.
@@ -223,7 +168,8 @@ export function blockers(entities: HassEntities, a: Announce, auto?: HassEntity,
     const { from, to } = a.quiet;
     if (from < to ? t >= from && t < to : t >= from || t < to) out.push({ text: `Quiet hours: nothing is spoken until ${to.slice(0, 5)}.` });
   }
-  if (!a.cameras.length) return out;
+  const cameras = announceCameras(entities).filter((c) => !a.skip?.includes(c.motion));
+  if (!cameras.length) return out;
   if (blinkSignedOut(entities)) return [...out, { text: SIGN_IN_AGAIN }];
   const alarms = byDomain(entities, 'alarm_control_panel').filter((e) => !unavailable(e));
   const disarmed = alarms.filter((e) => !e.state.startsWith('arm'));
@@ -232,13 +178,37 @@ export function blockers(entities: HassEntities, a: Announce, auto?: HassEntity,
       text: 'Cameras are disarmed. Blink only reports motion while armed.',
       fix: { label: 'Arm', run: ['alarm_control_panel', 'alarm_arm_away', { entity_id: disarmed.map((e) => e.entity_id) }] },
     });
-  for (const c of a.cameras) {
+  for (const c of cameras) {
     const detection = entities[`switch.${c.motion.split('.')[1].replace(/_motion$/, '')}_motion_detection`];
     if (unavailable(entities[c.motion])) out.push({ text: `${c.name} is offline.` });
     else if (detection?.state === 'off')
       out.push({ text: `${c.name}: motion detection is off.`, fix: { label: 'Turn on', run: ['switch', 'turn_on', { entity_id: detection.entity_id }] } });
   }
   return out;
+}
+
+/** "Announce on Echo" for one device or camera: its motion and problems. Shown once an Echo is set up. */
+export function AnnounceRow({ entity, card }: { entity: HassEntity; card?: boolean }) {
+  const { entities, devices } = useHA();
+  const { saved, save } = useAnnounce();
+  const [draft, setDraft] = useState<Announce>();
+  const a = draft ?? saved;
+  const device = devices[entity.entity_id];
+  const ids = announceable(entities).filter((id) => id === entity.entity_id || (device && devices[id]?.id === device.id));
+  if (!a?.echoes.length || !ids.length) return null;
+  const skip = a.skip ?? [];
+  const row = (
+    <Row
+      label="Announce on Echo"
+      value={!ids.some((id) => skip.includes(id))}
+      onChange={(on) => {
+        const next = { ...a, skip: on ? skip.filter((id) => !ids.includes(id)) : [...new Set([...skip, ...ids])] };
+        setDraft(next);
+        save(next).catch(() => setDraft(undefined));
+      }}
+    />
+  );
+  return card ? <Card>{row}</Card> : row;
 }
 
 function Blockers({ list, call }: { list: Blocker[]; call: ReturnType<typeof useHA>['call'] }) {
