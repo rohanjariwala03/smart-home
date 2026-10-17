@@ -8,7 +8,7 @@ import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { name, switchables, useHA } from '@/ha';
+import { isEcho, name, players, switchables, useHA } from '@/ha';
 import { goveeOptions, useGoveeKey, type GoveeStep } from '@/govee';
 import { useTheme } from '@/hooks/use-theme';
 import { deleteScene, newSceneId, readScene, saveScene, type AppScene, type SceneStep } from '@/scenes';
@@ -22,7 +22,7 @@ export function SceneEditor({ entityId, onClose }: { entityId?: string; onClose:
   const theme = useTheme();
   const [scene, setScene] = useState<AppScene>({ name: '', steps: [], govee: [] });
   const [busy, setBusy] = useState(false);
-  const all = switchables(entities, devices);
+  const all = [...switchables(entities, devices), ...players(entities, devices).filter((e) => !isEcho(e))];
 
   useEffect(() => {
     if (conn && entityId) readScene(conn, entityId).then(setScene, () => {});

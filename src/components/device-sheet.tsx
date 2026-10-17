@@ -6,7 +6,7 @@ import { Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-na
 import { AnnounceRow } from '@/components/announce-settings';
 import { useRemoveDevice } from '@/components/remove-devices';
 import { Chip } from '@/components/chip';
-import { ActivityCard, AwayCard, NameRoomCard, RenameButton, TimerCard } from '@/components/device-extras';
+import { ActivityCard, AwayCard, FollowCard, NameRoomCard, RenameButton, TimerCard } from '@/components/device-extras';
 import { ScheduleCard } from '@/components/schedule-card';
 import { Card } from '@/components/screen';
 import { FavouriteButton } from '@/favourites';
@@ -108,6 +108,8 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
           {(SWITCHABLE.includes(domain) || (domain === 'media_player' && !isEcho(entity))) && <TimerCard entity={entity} />}
 
           <ScheduleCard entity={entity} />
+
+          {(SWITCHABLE.includes(domain) || (domain === 'media_player' && !isEcho(entity))) && <FollowCard entity={entity} />}
 
           {/kasa|tp-link/i.test(device?.manufacturer ?? '') && (
             <ThemedText type="small" themeColor="textSecondary">

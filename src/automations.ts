@@ -24,6 +24,7 @@ export const nightId = (alarm: string) => `smarthome_night_${slug(alarm)}`;
 export const leaveId = (alarm: string) => `smarthome_leave_${slug(alarm)}`;
 export const arriveId = (alarm: string) => `smarthome_arrive_${slug(alarm)}`;
 export const motionLightId = (camera: string) => `smarthome_motionlight_${slug(camera)}`;
+export const followId = (entity: string) => `smarthome_follow_${slug(entity)}`;
 export const HEALTH_ID = 'smarthome_health';
 export const ANNOUNCE_ID = 'smarthome_announce';
 
@@ -226,6 +227,41 @@ export function setMotionLight(creds: Creds, camera: string, motion: string, nam
     mode: 'restart',
   });
 }
+
+export type Follow = { targets: string[]; off: boolean; darkOnly: boolean };
+const OFF = ['off', 'standby', 'unavailable', 'unknown'];
+
+/**
+ * When `entity` turns on (a TV waking counts), switch `targets` on; with `off`, off again when it goes off. A TV that
+ * drops off the network when it's off (Cast) counts as off after a minute. `darkOnly` only holds back the switching on.
+ */
+export function setFollow(creds: Creds, entity: string, name: string, f: Follow) {
+  return rest(creds, 'POST', followId(entity), {
+    alias: `${name}: turns other devices on`,
+    description: 'Created by the Smart Home app',
+    triggers: [
+      { trigger: 'state', entity_id: entity, from: OFF, not_to: OFF, id: 'on' },
+      ...(f.off
+        ? [
+            { trigger: 'state', entity_id: entity, to: ['off', 'standby'], id: 'off' },
+            { trigger: 'state', entity_id: entity, to: 'unavailable', for: { minutes: 1 }, id: 'off' },
+          ]
+        : []),
+    ],
+    conditions: f.darkOnly
+      ? [{ condition: 'or', conditions: [{ condition: 'trigger', id: 'off' }, { condition: 'state', entity_id: 'sun.sun', state: 'below_horizon' }] }]
+      : [],
+    actions: [{ action: 'homeassistant.turn_{{ trigger.id }}', target: { entity_id: f.targets } }],
+    mode: 'queued',
+  });
+}
+
+export const followOf = (config?: Record<string, any>): Follow | undefined =>
+  config && {
+    targets: [config.actions?.[0]?.target?.entity_id ?? []].flat(),
+    off: (config.triggers ?? []).length > 1,
+    darkOnly: (config.conditions ?? []).length > 0,
+  };
 
 export const motionLightOf = (config?: Record<string, any>): MotionLight | undefined =>
   config && {

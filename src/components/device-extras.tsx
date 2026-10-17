@@ -7,8 +7,22 @@ import { Chip } from '@/components/chip';
 import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { awayId, removeAutomation, setAway, setTimer, timerEnd, timerId, useAutomation } from '@/automations';
-import { name, useHA, type Device } from '@/ha';
+import {
+  awayId,
+  followId,
+  followOf,
+  removeAutomation,
+  setAway,
+  setFollow,
+  setTimer,
+  timerEnd,
+  timerId,
+  useAutomation,
+  useAutomationConfig,
+  type Follow,
+} from '@/automations';
+import { Row } from '@/components/camera-automations';
+import { isEcho, name, players, switchables, useHA, type Device } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 import { ADMIN_ONLY } from '@/setup';
 
@@ -125,6 +139,66 @@ export function AwayCard({ entity }: { entity: HassEntity }) {
         </View>
         <Switch value={auto?.state === 'on'} disabled={!creds} onValueChange={toggle} />
       </View>
+      {error && <ThemedText style={styles.error}>{error}</ThemedText>}
+    </Card>
+  );
+}
+
+/** "When this turns on, also turn on…": e.g. the TV wakes and the Govee light behind it comes on. */
+export function FollowCard({ entity }: { entity: HassEntity }) {
+  const { creds, entities, devices } = useHA();
+  const id = followId(entity.entity_id);
+  const auto = useAutomation(id);
+  const saved = followOf(useAutomationConfig(id));
+  const [draft, setDraft] = useState<Follow>();
+  const [error, setError] = useState<string>();
+  if (!creds) return null;
+
+  const f = draft ?? saved ?? { targets: [], off: true, darkOnly: false };
+  const open = !!auto || !!draft;
+  const choices = [...switchables(entities, devices), ...players(entities, devices).filter((e) => !isEcho(e))]
+    .filter((e) => e.entity_id !== entity.entity_id)
+    .sort((a, b) => name(a).localeCompare(name(b)));
+  const save = (next: Follow) => {
+    setDraft(next);
+    setError(undefined);
+    Promise.resolve(
+      next.targets.length ? setFollow(creds, entity.entity_id, name(entity), next) : auto && removeAutomation(creds, id),
+    ).catch((e) => setError(e?.message ?? String(e)));
+  };
+
+  return (
+    <Card>
+      <Row
+        label="When this turns on, also turn on…"
+        value={open}
+        onChange={(on) => {
+          setDraft(on ? f : undefined);
+          if (!on && auto) removeAutomation(creds, id).catch((e) => setError(e?.message ?? String(e)));
+        }}
+      />
+      {open && (
+        <>
+          <View style={styles.wrap}>
+            {choices.map((e) => (
+              <Chip
+                key={e.entity_id}
+                label={name(e)}
+                selected={f.targets.includes(e.entity_id)}
+                onPress={() =>
+                  save({
+                    ...f,
+                    targets: f.targets.includes(e.entity_id) ? f.targets.filter((t) => t !== e.entity_id) : [...f.targets, e.entity_id],
+                  })
+                }
+              />
+            ))}
+          </View>
+          <Row label="Turn them off with it" value={f.off} onChange={(off) => save({ ...f, off })} />
+          <Row label="Only after dark" value={f.darkOnly} onChange={(darkOnly) => save({ ...f, darkOnly })} />
+          {!f.targets.length && <ThemedText type="small" themeColor="textSecondary">Pick what to turn on.</ThemedText>}
+        </>
+      )}
       {error && <ThemedText style={styles.error}>{error}</ThemedText>}
     </Card>
   );
