@@ -10,7 +10,7 @@ import { until, useTimer } from '@/components/device-extras';
 import { VACUUM_STATE } from '@/components/device-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { byDomain, name, playerOn, players, switchables, unavailable, useHA, type Device } from '@/ha';
+import { byDomain, isEcho, name, playerOn, players, switchables, unavailable, useHA, type Device } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 import { useOptimistic } from '@/optimistic';
 
@@ -29,8 +29,8 @@ const AMBER: number[] = [255, 179, 0];
 
 export const domainOf = (e: HassEntity) => e.entity_id.split('.')[0];
 
-/** On, for counting and "All off": a TV that's playing or idle counts too. */
-export const active = (e: HassEntity) => e.state === 'on' || (domainOf(e) === 'media_player' && playerOn(e));
+/** On, for counting and "All off": a TV that's playing or idle counts too; an Echo never does. */
+export const active = (e: HassEntity) => e.state === 'on' || (domainOf(e) === 'media_player' && !isEcho(e) && playerOn(e));
 
 /** Everything the app can switch, by name. Switches that belong to a camera (Blink motion detection) live on the Cameras tab instead. */
 export const allDevices = (entities: HassEntities, registry: Record<string, Device>) =>
@@ -53,13 +53,15 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
   const off = unavailable(entity);
   const vacuum = domainOf(entity) === 'vacuum';
   const media = domainOf(entity) === 'media_player';
-  const shown = useOptimistic(entity, vacuum ? entity.state === 'cleaning' : active(entity));
+  const echo = isEcho(entity);
+  const shown = useOptimistic(entity, vacuum ? entity.state === 'cleaning' : echo ? entity.state === 'playing' : active(entity));
   const isOn = shown.isOn;
   const [r, g, b] = (entity.attributes.rgb_color as number[] | undefined) ?? TINT[domainOf(entity)] ?? AMBER;
   const brightness: number | undefined = entity.attributes.brightness;
   const state =
     off ? 'Unavailable'
     : vacuum ? (VACUUM_STATE[entity.state] ?? entity.state)
+    : echo ? (isOn ? (entity.attributes.media_title ?? 'Playing') : 'Idle')
     : !isOn ? 'Off'
     : media ? (entity.attributes.app_name ?? (entity.state === 'playing' ? 'Playing' : 'On'))
     : brightness ? `${Math.round(brightness / 2.55)}%`
@@ -88,10 +90,12 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
   const toggle = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     tapped.current = true;
-    // Vacuums have no toggle: tap starts, or pauses while cleaning.
+    // Vacuums have no toggle: tap starts, or pauses while cleaning. An Echo plays or pauses.
     shown.set(!isOn, () =>
       vacuum
         ? call('vacuum', isOn ? 'pause' : 'start', { entity_id: entity.entity_id })
+        : echo
+        ? call('media_player', 'media_play_pause', { entity_id: entity.entity_id })
         : call(domainOf(entity), isOn ? 'turn_off' : 'turn_on', { entity_id: entity.entity_id }),
     );
   };
@@ -112,7 +116,7 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
         onPress={toggle}>
         <Animated.View style={[styles.icon, iconStyle, off && styles.dim]}>
           <SymbolView
-            name={ICONS[domainOf(entity)] ?? 'power'}
+            name={echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power')}
             size={18}
             tintColor={isOn ? `rgb(${r},${g},${b})` : theme.textSecondary}
           />

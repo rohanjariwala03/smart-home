@@ -201,12 +201,16 @@ export const unavailable = (e?: HassEntity) => !e || e.state === 'unavailable' |
 
 export const deviceName = (d?: Device) => d?.name_by_user ?? d?.name ?? undefined;
 
-/** TVs and other players that can be switched on, without Echos (they speak announcements). A TV added twice (Cast
- * plus its own integration) shows once, as the one that says it's a TV: that one can wake it. */
+/** Alexa Media Player's Echos: speakers with no real power switch (they always carry `last_called`). */
+export const isEcho = (e: HassEntity) => e.entity_id.startsWith('media_player.') && 'last_called' in e.attributes;
+
+/** TVs and speakers. A TV added twice (Cast plus its own integration) shows once, as the one that says it's a TV:
+ * that one can wake it. The Alexa phone app ("This Device") isn't a speaker. */
 export function players(entities: HassEntities, devices: Record<string, Device>) {
   const best = new Map<string, HassEntity>();
   for (const e of byDomain(entities, 'media_player')) {
-    if (/amazon/i.test(devices[e.entity_id]?.manufacturer ?? '') || !((e.attributes.supported_features ?? 0) & 128)) continue; // 128 = TURN_ON
+    if (devices[e.entity_id]?.model?.startsWith('Alexa Mobile')) continue;
+    if (!isEcho(e) && !((e.attributes.supported_features ?? 0) & 128)) continue; // 128 = TURN_ON
     const key = deviceName(devices[e.entity_id]) ?? e.entity_id;
     const had = best.get(key);
     if (!had || (e.attributes.device_class === 'tv' && had.attributes.device_class !== 'tv')) best.set(key, e);

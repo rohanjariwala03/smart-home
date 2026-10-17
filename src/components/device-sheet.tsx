@@ -13,7 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { armStatus, Toggle } from '@/components/toggle';
 import { Spacing } from '@/constants/theme';
-import { deviceName, name, playerOn, unavailable, useHA, type Device } from '@/ha';
+import { deviceName, isEcho, name, playerOn, unavailable, useHA, type Device } from '@/ha';
 import { GoveeCard } from '@/govee';
 
 const COLOR_MODES = ['hs', 'rgb', 'rgbw', 'rgbww', 'xy'];
@@ -45,6 +45,7 @@ const RETURN_HOME = 16;
 const LOCATE = 512;
 // media_player features
 const PLAY_PAUSE = 1;
+const VOLUME_SET = 4;
 const MUTE = 8;
 const PREVIOUS = 16;
 const NEXT = 32;
@@ -102,7 +103,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
 
           {domain === 'light' && <GoveeCard device={device} />}
 
-          {(SWITCHABLE.includes(domain) || domain === 'media_player') && <TimerCard entity={entity} />}
+          {(SWITCHABLE.includes(domain) || (domain === 'media_player' && !isEcho(entity))) && <TimerCard entity={entity} />}
 
           <ScheduleCard entity={entity} />
 
@@ -279,24 +280,35 @@ function MediaControls({ entity }: { entity: HassEntity }) {
   const { call } = useHA();
   const a = entity.attributes;
   const f: number = a.supported_features ?? 0;
-  const on = playerOn(entity);
+  const echo = isEcho(entity); // a speaker: always on, nothing to power
+  const on = echo ? !unavailable(entity) : playerOn(entity);
   const mp = (service: string, data?: object) => call('media_player', service, { entity_id: entity.entity_id, ...data });
   const sources: string[] = a.source_list ?? [];
 
   return (
     <>
       <Card dim={unavailable(entity)}>
-        <Toggle
-          entity={entity}
-          label="Power"
-          isOn={on}
-          onChange={(v) => mp(v ? 'turn_on' : 'turn_off')}
-          status={(v) => (v ? (a.media_title ?? a.app_name ?? 'On') : 'Off')}
-        />
+        {echo ? (
+          <ThemedText>{unavailable(entity) ? 'Offline' : entity.state === 'playing' ? (a.media_title ?? 'Playing') : 'Idle'}</ThemedText>
+        ) : (
+          <Toggle
+            entity={entity}
+            label="Power"
+            isOn={on}
+            onChange={(v) => mp(v ? 'turn_on' : 'turn_off')}
+            status={(v) => (v ? (a.media_title ?? a.app_name ?? 'On') : 'Off')}
+          />
+        )}
+        {on && f & VOLUME_SET && a.volume_level !== undefined ? (
+          <View style={styles.section}>
+            <ThemedText type="small" themeColor="textSecondary">Volume {Math.round(a.volume_level * 100)}%</ThemedText>
+            <Slider value={a.volume_level} onSlidingComplete={(v) => mp('volume_set', { volume_level: Math.round(v * 100) / 100 })} />
+          </View>
+        ) : null}
         {on && (
           <View style={styles.wrap}>
-            {f & VOLUME_STEP ? <Chip icon="speaker.wave.1.fill" label="Quieter" onPress={() => mp('volume_down')} /> : null}
-            {f & VOLUME_STEP ? <Chip icon="speaker.wave.3.fill" label="Louder" onPress={() => mp('volume_up')} /> : null}
+            {f & VOLUME_STEP && !(f & VOLUME_SET) ? <Chip icon="speaker.wave.1.fill" label="Quieter" onPress={() => mp('volume_down')} /> : null}
+            {f & VOLUME_STEP && !(f & VOLUME_SET) ? <Chip icon="speaker.wave.3.fill" label="Louder" onPress={() => mp('volume_up')} /> : null}
             {f & MUTE ? (
               <Chip
                 icon="speaker.slash.fill"

@@ -3,6 +3,7 @@ import { Button, StyleSheet, TextInput } from 'react-native';
 
 import { AddDeviceSheet, DiscoveredList, type SheetStart } from '@/components/add-device';
 import { AnnounceSettings } from '@/components/announce-settings';
+import { YourDevices } from '@/components/remove-devices';
 import { Card, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -66,10 +67,11 @@ export default function SettingsScreen() {
       </Card>
 
       <Card>
-        <ThemedText type="smallBold">Add devices</ThemedText>
+        <ThemedText type="smallBold">Devices</ThemedText>
         <DiscoveredList onSetUp={(flowId) => setSheet({ flowId })} />
         <Button title="Add by brand…" disabled={status !== 'ready'} onPress={() => setSheet('brand')} />
         <Button title="Matter pairing code…" disabled={status !== 'ready'} onPress={() => setSheet('matter')} />
+        <YourDevices />
       </Card>
       {sheet && <AddDeviceSheet start={sheet} onClose={() => setSheet(undefined)} />}
 
