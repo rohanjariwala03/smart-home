@@ -1,7 +1,7 @@
 import Slider from '@react-native-community/slider';
 import type { HassEntity } from 'home-assistant-js-websocket';
 import { useState } from 'react';
-import { Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AnnounceRow } from '@/components/announce-settings';
 import { useRemoveDevice } from '@/components/remove-devices';
@@ -103,7 +103,8 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
             </Card>
           )}
 
-          {domain === 'light' && <GoveeCard device={device} />}
+          {/* The Govee integration already brings scenes into Home Assistant; the app's own Govee key is for Matter lights. */}
+          {domain === 'light' && !entity.attributes.effect_list?.length && <GoveeCard device={device} />}
 
           {(SWITCHABLE.includes(domain) || (domain === 'media_player' && !isEcho(entity))) && <TimerCard entity={entity} />}
 
@@ -359,6 +360,23 @@ function EntityRow({ entity, device }: { entity: HassEntity; device?: Device }) 
   const set = (service: string, data: object) => call(domain, service, { entity_id: entity.entity_id, ...data });
 
   if (['switch', 'light', 'fan', 'input_boolean', 'siren'].includes(domain)) return <Toggle entity={entity} label={label} />;
+
+  // A long list (a Govee light's 240 scenes) opens as a picker instead of a wall of chips.
+  if (domain === 'select' && !unavailable(entity) && a.options.length > 8)
+    return (
+      <View style={styles.row}>
+        <ThemedText style={styles.flex}>{label}</ThemedText>
+        <Button
+          title={a.options.includes(entity.state) ? entity.state : 'Choose…'}
+          onPress={() =>
+            ActionSheetIOS.showActionSheetWithOptions(
+              { title: label, options: [...a.options, 'Cancel'], cancelButtonIndex: a.options.length },
+              (i) => i < a.options.length && set('select_option', { option: a.options[i] }),
+            )
+          }
+        />
+      </View>
+    );
 
   if (domain === 'select' && !unavailable(entity))
     return (

@@ -99,8 +99,8 @@ final class Home: ObservableObject {
     pinned(states.filter { s in
       ["light", "switch", "fan", "input_boolean"].contains(s.domain)
         && !s.entity_id.hasPrefix("switch.blink_proxy_") && !s.entity_id.hasSuffix("_motion_detection")
-        // Alexa Media Player's per-Echo settings, not devices.
-        && !["_do_not_disturb", "_shuffle", "_repeat", "_amazon_kids"].contains { s.entity_id.hasSuffix($0) }
+        // Settings of another device (an Echo's, a Govee light's), not devices.
+        && !["_do_not_disturb", "_shuffle", "_repeat", "_amazon_kids", "_music_mode", "_dreamview"].contains { s.entity_id.hasSuffix($0) }
     })
   }
 

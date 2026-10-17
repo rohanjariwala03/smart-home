@@ -64,9 +64,9 @@ struct HAState: Decodable {
 
 enum HA {
   static let domains = ["light", "switch", "fan", "input_boolean", "scene", "script"]
-  /// Alexa Media Player's switches on each Echo (no device registry here, so by name; the app uses the registry).
+  /// Switches that are a setting of another device: an Echo's (Alexa Media Player) or a Govee light's. By name: no device registry here.
   static func isEchoSetting(_ id: String) -> Bool {
-    id.hasPrefix("switch.") && ["_do_not_disturb", "_shuffle", "_repeat", "_amazon_kids"].contains { id.hasSuffix($0) }
+    id.hasPrefix("switch.") && ["_do_not_disturb", "_shuffle", "_repeat", "_amazon_kids", "_music_mode", "_dreamview"].contains { id.hasSuffix($0) }
   }
 
   struct Creds: Decodable { let url: String; let token: String }

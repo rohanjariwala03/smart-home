@@ -221,17 +221,17 @@ export function players(entities: HassEntities, devices: Record<string, Device>)
 export const playerOn = (e: HassEntity) => !['off', 'standby', 'unavailable', 'unknown'].includes(e.state);
 
 /**
- * Lights and switches people control. A switch on a camera, speaker or TV is one of its settings (Blink's motion
- * detection, an Echo's Do Not Disturb or Amazon Kids), not a device of its own.
+ * Lights and switches people control. A switch on a camera, speaker, TV, light or fan is one of its settings (Blink's
+ * motion detection, an Echo's Do Not Disturb, a Govee light's music mode), not a device of its own.
  */
 export function switchables(entities: HassEntities, devices: Record<string, Device>) {
   const parent = new Set(
-    Object.keys(entities).flatMap((id) => (/^(camera|media_player)\./.test(id) && devices[id] ? [devices[id].id] : [])),
+    Object.keys(entities).flatMap((id) => (/^(camera|media_player|light|fan)\./.test(id) && devices[id] ? [devices[id].id] : [])),
   );
   return byDomain(entities, 'light', 'switch', 'fan', 'input_boolean').filter(
     (e) =>
       !e.entity_id.startsWith('switch.blink_proxy_') &&
       !e.entity_id.endsWith('_motion_detection') && // in case the registry isn't readable
-      !parent.has(devices[e.entity_id]?.id),
+      !(e.entity_id.startsWith('switch.') && parent.has(devices[e.entity_id]?.id)),
   );
 }
