@@ -7,6 +7,7 @@ import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 import {
   ANNOUNCE_ID,
   announceOf,
+  blinkDelay,
   blinkSignedOut,
   removeAutomation,
   setAnnounce,
@@ -155,7 +156,7 @@ export function AnnounceSettings() {
           {a.echoes.length > 0 && (a.cameras.length > 0 || a.health) && <Blockers list={blockers(entities, a, auto)} call={call} />}
           <Button title="Test announcement" disabled={!a.echoes.length} onPress={test} />
           <ThemedText type="small" themeColor="textSecondary">
-            Doorbell presses come from Blink’s motion check, so the Echo may speak up to a minute after the press.
+            Motion only counts once Blink saves a clip (a Blink subscription, or a USB drive in the Sync Module), and the Echo may speak up to {blinkDelay(entities)} later.
           </ThemedText>
         </>
       )}

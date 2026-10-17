@@ -30,6 +30,11 @@ export const ANNOUNCE_ID = 'smarthome_announce';
 /** The Blink proxy's "last Blink refresh" sensor; its `state` attribute is "auth_failed" once Blink signs it out. */
 export const BLINK_POLL = 'sensor.blink_liveview_proxy_last_blink_refresh';
 export const blinkSignedOut = (entities: HassEntities) => entities[BLINK_POLL]?.attributes.state === 'auth_failed';
+/** How late motion can show up: the proxy only sees a clip on its next Blink refresh. */
+export function blinkDelay(entities: HassEntities) {
+  const s = Number(entities[BLINK_POLL]?.attributes.interval) || 300;
+  return s < 120 ? `${s} seconds` : `${Math.round(s / 60)} minutes`;
+}
 const BLINK_SIGNED_OUT = 'Blink signed out. Sign in again in Home Assistant';
 export const SIGN_IN_AGAIN =
   'Blink signed Home Assistant out, so cameras show as offline. Sign in again: in Home Assistant open Blink Live View Proxy › Authentication › Resuthenticate and enter the code Blink sends. Then tap Reconnect cameras.';
