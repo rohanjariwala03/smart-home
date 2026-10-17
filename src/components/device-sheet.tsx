@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AnnounceRow } from '@/components/announce-settings';
+import { useRemoveDevice } from '@/components/remove-devices';
 import { Chip } from '@/components/chip';
 import { ActivityCard, AwayCard, NameRoomCard, RenameButton, TimerCard } from '@/components/device-extras';
 import { ScheduleCard } from '@/components/schedule-card';
@@ -55,6 +56,7 @@ const VOLUME_STEP = 1024;
 export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: () => void }) {
   const { entities, devices, call } = useHA();
   const domain = entity.entity_id.split('.')[0];
+  const removeDevice = useRemoveDevice();
   const device = devices[entity.entity_id];
   const others = device
     ? Object.values(entities)
@@ -136,6 +138,9 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
             <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
               {[device.manufacturer, device.model].filter(Boolean).join(' · ')}
             </ThemedText>
+          )}
+          {device && (
+            <Button title="Remove device" color="#FF453A" onPress={() => removeDevice(device.id, deviceName(device) ?? name(entity), onClose)} />
           )}
         </ScrollView>
       </ThemedView>
