@@ -20,7 +20,7 @@ import { ArmingCard, MotionLightCard } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
 import { ClipsSheet } from '@/components/clips';
 import { RenameButton } from '@/components/device-extras';
-import { DeviceSheet } from '@/components/device-sheet';
+import { DeviceSheet, stateText } from '@/components/device-sheet';
 import { LiveGrid } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
 import { Card, Disclosure, Screen } from '@/components/screen';
@@ -193,7 +193,7 @@ function Camera({ entity, notify, onClips }: {
   const details = [
     motion && !unavailable(motion) && `Motion: ${motion.state === 'on' ? 'detected' : 'clear'}`,
     battery && !unavailable(battery) && `Battery: ${battery.state === 'on' ? 'low' : 'OK'}`,
-    temperature && !unavailable(temperature) && `${temperature.state}${temperature.attributes.unit_of_measurement ?? ''}`,
+    temperature && !unavailable(temperature) && stateText(temperature),
   ].filter(Boolean);
   const automations = [
     motionDetection && !unavailable(motionDetection) && (motionDetection.state === 'on' ? 'Detecting' : 'Detection off'),

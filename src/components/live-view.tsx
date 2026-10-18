@@ -479,7 +479,7 @@ function ControlsPanel({ base, token, session, style }: { base: string; token: s
           <View style={styles.settingRow}>
             <Text style={styles.label}>Temperature</Text>
             <Text style={styles.label}>
-              {c.temperature}
+              {Math.round(c.temperature)}
               {c.temperature_unit}
             </Text>
           </View>

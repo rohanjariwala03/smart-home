@@ -427,7 +427,7 @@ export function stateText(e: HassEntity) {
   if (e.entity_id.startsWith('update.')) return e.state === 'on' ? 'Update available' : 'Up to date';
   if (e.entity_id.startsWith('binary_sensor.')) return e.state === 'on' ? 'Yes' : 'No';
   const n = Number(e.state);
-  const v = Number.isFinite(n) && e.state.trim() !== '' ? String(Math.round(n * 100) / 100) : e.state;
+  const v = Number.isFinite(n) && e.state.trim() !== '' ? String(a.device_class === 'temperature' ? Math.round(n) : Math.round(n * 100) / 100) : e.state;
   return a.unit_of_measurement ? `${v} ${a.unit_of_measurement}` : v;
 }
 
