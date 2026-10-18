@@ -1,6 +1,6 @@
 import { getServices } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
-import { Button, Linking, StyleSheet, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
 
 import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 
@@ -19,7 +19,7 @@ import {
 import { AddDeviceSheet } from '@/components/add-device';
 import { Row, Time } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
-import { Card } from '@/components/screen';
+import { Card, Disclosure } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { byDomain, name, unavailable, useHA } from '@/ha';
@@ -91,8 +91,10 @@ export function AnnounceSettings() {
             Amazon below (your email, password and the code Amazon sends).{'\n'}It’s unofficial: Amazon changes can break it
             for a few days until it’s updated.
           </ThemedText>
-          <Button title="1. Open Alexa Media Player in HACS" disabled={!creds} onPress={() => creds && Linking.openURL(creds.url + AMP_HACS)} />
-          <Button title="2. Sign in to Amazon…" disabled={!conn} onPress={() => setSetup(true)} />
+          <View style={styles.wrap}>
+            <Chip icon="1.circle" label="Open in HACS" disabled={!creds} onPress={() => creds && Linking.openURL(creds.url + AMP_HACS)} />
+            <Chip icon="2.circle" label="Sign in to Amazon" disabled={!conn} onPress={() => setSetup(true)} />
+          </View>
         </>
       ) : !found.echoes.length ? (
         <ThemedText type="small" themeColor="textSecondary">Alexa Media Player is set up but has no Echo devices yet.</ThemedText>
@@ -127,7 +129,9 @@ export function AnnounceSettings() {
           )}
           {!a.echoes.length && <ThemedText type="small" themeColor="textSecondary">Pick at least one Echo.</ThemedText>}
           {a.echoes.length > 0 && <Blockers list={blockers(entities, a, auto)} call={call} />}
-          <Button title="Test announcement" disabled={!a.echoes.length} onPress={test} />
+          <View style={styles.wrap}>
+            <Chip icon="speaker.wave.2.fill" label="Test announcement" disabled={!a.echoes.length} onPress={test} />
+          </View>
           <ThemedText type="small" themeColor="textSecondary">
             Motion only counts once Blink saves a clip (a Blink subscription, or a USB drive in the Sync Module), and the Echo may speak up to {blinkDelay(entities)} later.
           </ThemedText>
@@ -135,13 +139,16 @@ export function AnnounceSettings() {
       )}
       {note && <ThemedText type="small" style={styles.error}>{note}</ThemedText>}
 
-      <ThemedText style={styles.gap}>On your iPhone</ThemedText>
-      <ThemedText type="small" themeColor="textSecondary">
+      <Disclosure title="Read alerts aloud on iPhone">
+        <ThemedText type="small" themeColor="textSecondary">
         Siri can read alerts aloud through AirPods, Beats or CarPlay (iOS never reads them from the phone speaker). In iPhone
         Settings › Notifications › Announce Notifications: turn it on, then turn on Home Assistant (your camera, doorbell and
         health alerts come through it). Doorbell and health alerts are time-sensitive, so they’re read even with Focus on.
-      </ThemedText>
-      <Button title="Open iPhone Settings" onPress={() => Linking.openURL('App-Prefs:NOTIFICATIONS_ID').catch(() => Linking.openSettings())} />
+        </ThemedText>
+        <View style={styles.wrap}>
+          <Chip icon="gear" label="Open iPhone Settings" onPress={() => Linking.openURL('App-Prefs:NOTIFICATIONS_ID').catch(() => Linking.openSettings())} />
+        </View>
+      </Disclosure>
 
       {setup && <AddDeviceSheet start={{ handler: 'alexa_media' }} onClose={() => setSetup(false)} />}
     </Card>
@@ -234,6 +241,5 @@ const styles = StyleSheet.create({
   warn: { color: '#FF9F0A' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   times: { flexDirection: 'row', gap: Spacing.three },
-  gap: { marginTop: Spacing.two },
   error: { color: '#E5484D' },
 });

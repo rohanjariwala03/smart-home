@@ -57,8 +57,13 @@ export function Card({ children, dim }: { children: ReactNode; dim?: boolean }) 
 }
 
 /** A row that opens to show settings you don't need every day. `summary` shows what's on while closed. */
-export function Disclosure({ title, summary, children }: { title: string; summary?: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+export function Disclosure({ title, summary, initiallyOpen, children }: {
+  title: string;
+  summary?: string;
+  initiallyOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(!!initiallyOpen);
   const theme = useTheme();
   return (
     <>

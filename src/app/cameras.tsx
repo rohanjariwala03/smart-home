@@ -2,7 +2,7 @@ import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Alert, Button, Image, Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Image, Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import {
   alertId,
@@ -69,9 +69,10 @@ export default function CamerasScreen() {
           <ThemedText type="small">{SIGN_IN_AGAIN}</ThemedText>
           {creds && (
             <View style={styles.actions}>
-              <Button title="Open in Home Assistant" onPress={() => Linking.openURL(`${creds.url}/blink-liveview-proxy-auth`)} />
-              <Button
-                title="Reconnect cameras"
+              <Chip icon="person.badge.key.fill" label="Sign in again" onPress={() => Linking.openURL(`${creds.url}/blink-liveview-proxy-auth`)} />
+              <Chip
+                icon="arrow.clockwise"
+                label="Reconnect cameras"
                 disabled={!conn}
                 onPress={() =>
                   conn && restartBlinkProxy(conn).then(
@@ -138,7 +139,9 @@ export default function CamerasScreen() {
       )}
       {detail && entities[detail] && <DeviceSheet entity={entities[detail]} onClose={() => setDetail(undefined)} />}
       {clips && <ClipsSheet camera={clips === true ? undefined : clips} onClose={() => setClips(undefined)} />}
-      <Button title="Open Blink app" onPress={() => Linking.openURL(BLINK_APP_STORE)} />
+      <View style={styles.chips}>
+        <Chip icon="arrow.up.forward.app" label="Open Blink app" onPress={() => Linking.openURL(BLINK_APP_STORE)} />
+      </View>
     </Screen>
   );
 }
@@ -270,7 +273,7 @@ function Camera({ entity, notify, onClips }: {
 
 const styles = StyleSheet.create({
   image: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: '#0003' },
-  actions: { flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pressed: { opacity: 0.8 },
   play: {

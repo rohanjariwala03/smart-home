@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { Button, StyleSheet, TextInput } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 
 import { AddDeviceSheet, DiscoveredList, type SheetStart } from '@/components/add-device';
 import { AnnounceSettings } from '@/components/announce-settings';
+import { Chip } from '@/components/chip';
 import { YourDevices } from '@/components/remove-devices';
-import { Card, Screen } from '@/components/screen';
+import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { listGovee, useGoveeKey } from '@/govee';
-import { byDomain, useHA } from '@/ha';
+import { useHA } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function SettingsScreen() {
@@ -23,67 +24,67 @@ export default function SettingsScreen() {
   const trimmedUrl = url.trim().replace(/\/+$/, '');
   const nextToken = token.trim() || creds?.token || '';
   const valid = /^https?:\/\/.+/.test(trimmedUrl) && nextToken.length > 0;
-
-  const counts = (['light', 'switch', 'camera', 'scene', 'script'] as const)
-    .map((d) => `${d} ${byDomain(entities, d).length}`)
-    .join(' · ');
+  const ready = status === 'ready';
 
   return (
     <Screen title="Settings">
       <Card>
-        <ThemedText type="smallBold">Home Assistant</ThemedText>
-        <TextInput
-          style={input}
-          value={url}
-          onChangeText={setUrl}
-          placeholder="http://192.168.x.x"
-          placeholderTextColor={theme.textSecondary}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-        />
-        <TextInput
-          style={input}
-          value={token}
-          onChangeText={setToken}
-          placeholder={creds ? 'Long-lived token (saved; leave blank to keep)' : 'Long-lived access token'}
-          placeholderTextColor={theme.textSecondary}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-        />
-        <Button
-          title="Save & connect"
-          disabled={!valid}
-          onPress={() => {
-            save({ url: trimmedUrl, token: nextToken });
-            setToken('');
-          }}
-        />
-        <ThemedText type="small" themeColor="textSecondary">
-          Token is stored in the iOS Keychain. Adding devices needs an admin user&apos;s token; for control only, a
-          non-admin user (Profile → Security) is safer.
-        </ThemedText>
-      </Card>
-
-      <Card>
         <ThemedText type="smallBold">Devices</ThemedText>
         <DiscoveredList onSetUp={(flowId) => setSheet({ flowId })} />
-        <Button title="Add by brand…" disabled={status !== 'ready'} onPress={() => setSheet('brand')} />
-        <Button title="Matter pairing code…" disabled={status !== 'ready'} onPress={() => setSheet('matter')} />
+        <View style={styles.chips}>
+          <Chip icon="plus" label="Add by brand" disabled={!ready} onPress={() => setSheet('brand')} />
+          <Chip icon="qrcode" label="Matter pairing code" disabled={!ready} onPress={() => setSheet('matter')} />
+        </View>
         <YourDevices />
       </Card>
       {sheet && <AddDeviceSheet start={sheet} onClose={() => setSheet(undefined)} />}
 
       <AnnounceSettings />
 
-      <GoveeSettings />
-
       <Card>
-        <ThemedText type="smallBold">Diagnostics</ThemedText>
-        <ThemedText type="small">Status: {status}{error ? ` (${error})` : ''}</ThemedText>
-        <ThemedText type="small">HA version: {conn?.haVersion ?? '–'}</ThemedText>
-        <ThemedText type="small">Entities: {Object.keys(entities).length} ({counts})</ThemedText>
+        <ThemedText type="smallBold">Home Assistant</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {ready ? `Connected · ${conn?.haVersion ?? ''} · ${Object.keys(entities).length} entities` : `${status}${error ? ` (${error})` : ''}`}
+        </ThemedText>
+        <Disclosure title="Address & token" summary={creds?.url} initiallyOpen={!creds}>
+          <TextInput
+            style={input}
+            value={url}
+            onChangeText={setUrl}
+            placeholder="http://192.168.x.x"
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+          />
+          <TextInput
+            style={input}
+            value={token}
+            onChangeText={setToken}
+            placeholder={creds ? 'Long-lived token (saved; leave blank to keep)' : 'Long-lived access token'}
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+          />
+          <View style={styles.chips}>
+            <Chip
+              icon="link"
+              label="Save & connect"
+              selected
+              disabled={!valid}
+              onPress={() => {
+                save({ url: trimmedUrl, token: nextToken });
+                setToken('');
+              }}
+            />
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            Token is stored in the iOS Keychain. Adding devices needs an admin user&apos;s token; for control only, a
+            non-admin user (Profile → Security) is safer.
+          </ThemedText>
+        </Disclosure>
+        <GoveeSettings />
       </Card>
     </Screen>
   );
@@ -91,9 +92,10 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 10, padding: Spacing.two, fontSize: 16 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
 });
 
-// Optional Govee cloud key: adds scenes, music mode and DreamView to Govee lights' detail screen.
+// Optional Govee cloud key: adds scenes, music mode and DreamView to Matter-added Govee lights' settings.
 function GoveeSettings() {
   const { key, save } = useGoveeKey();
   const theme = useTheme();
@@ -114,12 +116,11 @@ function GoveeSettings() {
   };
 
   return (
-    <Card>
-      <ThemedText type="smallBold">Govee extras (optional)</ThemedText>
+    <Disclosure title="Govee cloud key" summary={key ? 'Saved' : 'Not set'}>
       <ThemedText type="small" themeColor="textSecondary">
-        Scenes, music mode and DreamView aren&apos;t available over Matter. Add a Govee API key to control them from a
-        light&apos;s detail screen. Get one in the Govee Home app: Profile → Settings → Apply for API Key. This uses
-        Govee&apos;s cloud.
+        Only for Govee lights added over Matter: adds scenes, music mode and DreamView to the light&apos;s settings. Lights
+        from the Govee integration in Home Assistant already have them. Get a key in the Govee Home app: Profile →
+        Settings → Apply for API Key.
       </ThemedText>
       <TextInput
         style={[styles.input, { color: theme.text, borderColor: theme.textSecondary }]}
@@ -131,18 +132,20 @@ function GoveeSettings() {
         autoCorrect={false}
         secureTextEntry
       />
-      <Button title="Save key" disabled={!draft.trim()} onPress={check} />
-      {key && (
-        <Button
-          title="Remove key"
-          color="#E5484D"
-          onPress={() => {
-            save(null);
-            setNote(undefined);
-          }}
-        />
-      )}
+      <View style={styles.chips}>
+        <Chip icon="key.fill" label="Save key" disabled={!draft.trim()} onPress={check} />
+        {key && (
+          <Chip
+            icon="trash"
+            label="Remove key"
+            onPress={() => {
+              save(null);
+              setNote(undefined);
+            }}
+          />
+        )}
+      </View>
       {note && <ThemedText type="small">{note}</ThemedText>}
-    </Card>
+    </Disclosure>
   );
 }

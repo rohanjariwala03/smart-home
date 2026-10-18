@@ -19,7 +19,7 @@ import {
 } from '@/automations';
 import { stateText } from '@/components/device-sheet';
 import { EnergyCard } from '@/components/energy-card';
-import { Card, Screen } from '@/components/screen';
+import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { byDomain, deviceName, name, unavailable, useHA } from '@/ha';
@@ -177,6 +177,11 @@ function CameraHealth({ camera }: { camera: HassEntity }) {
   const offline = unavailable(camera) && unavailable(live);
   const signedOut = blinkSignedOut(entities);
   const model = live?.attributes.product_type ?? live?.attributes.camera_type;
+  const summary = [
+    battery && `Battery ${batteryText(battery)}`,
+    signal !== 'Unknown' && signal.split(' · ')[0],
+    temperature && !unavailable(temperature) && stateText(temperature),
+  ].filter(Boolean).join(' · ');
 
   return (
     <Card>
@@ -184,30 +189,31 @@ function CameraHealth({ camera }: { camera: HassEntity }) {
         <ThemedText type="smallBold" style={styles.flex}>{name(camera)}</ThemedText>
         <Pill tone={offline || signedOut ? 'bad' : 'ok'} label={signedOut ? 'Blink signed out' : offline ? 'Offline' : 'Online'} />
       </View>
-      {model && <ThemedText type="small" themeColor="textSecondary">Blink {model}</ThemedText>}
-      {battery && (
-        <Row
-          icon={isLow(battery) ? 'battery.25percent' : 'battery.100percent'}
-          label="Battery"
-          value={[batteryText(battery), voltage && !unavailable(voltage) && stateText(voltage)].filter(Boolean).join(' · ')}
-          tone={unavailable(battery) ? 'none' : isLow(battery) ? 'bad' : 'ok'}
-        />
-      )}
-      <Row icon="wifi" label="Wi-Fi signal" value={signal} tone={signalTone} />
-      {temperature && <Row icon="thermometer.medium" label="Temperature" value={stateText(temperature)} />}
-      {detection && (
-        <Row
-          icon="figure.walk.motion"
-          label="Motion detection"
-          value={unavailable(detection) ? 'Unknown' : detection.state === 'on' ? 'On' : 'Off'}
-          tone={detection.state === 'on' ? 'ok' : 'warn'}
-        />
-      )}
-      {motion && <Row icon="video.fill" label="Last motion clip" value={ago(motion.attributes.last_record) ?? 'None yet'} />}
-      <Row icon="photo" label="Snapshot taken" value={ago(camera.attributes.snapshot_taken) ?? ago(camera.last_updated)} />
-      {live?.attributes.ptt_supported !== undefined && (
-        <Row icon="mic.fill" label="Two-way talk" value={live.attributes.ptt_supported ? 'Supported' : 'Not on this model'} />
-      )}
+      <Disclosure title={model ? `Blink ${model}` : 'Details'} summary={summary}>
+        {battery && (
+          <Row
+            icon={isLow(battery) ? 'battery.25percent' : 'battery.100percent'}
+            label="Battery"
+            value={[batteryText(battery), voltage && !unavailable(voltage) && stateText(voltage)].filter(Boolean).join(' · ')}
+            tone={unavailable(battery) ? 'none' : isLow(battery) ? 'bad' : 'ok'}
+          />
+        )}
+        <Row icon="wifi" label="Wi-Fi signal" value={signal} tone={signalTone} />
+        {temperature && <Row icon="thermometer.medium" label="Temperature" value={stateText(temperature)} />}
+        {detection && (
+          <Row
+            icon="figure.walk.motion"
+            label="Motion detection"
+            value={unavailable(detection) ? 'Unknown' : detection.state === 'on' ? 'On' : 'Off'}
+            tone={detection.state === 'on' ? 'ok' : 'warn'}
+          />
+        )}
+        {motion && <Row icon="video.fill" label="Last motion clip" value={ago(motion.attributes.last_record) ?? 'None yet'} />}
+        <Row icon="photo" label="Snapshot taken" value={ago(camera.attributes.snapshot_taken) ?? ago(camera.last_updated)} />
+        {live?.attributes.ptt_supported !== undefined && (
+          <Row icon="mic.fill" label="Two-way talk" value={live.attributes.ptt_supported ? 'Supported' : 'Not on this model'} />
+        )}
+      </Disclosure>
     </Card>
   );
 }
