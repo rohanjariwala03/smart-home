@@ -11,9 +11,14 @@ import {
   announceTriggers,
   blinkDelay,
   blinkSignedOut,
+  HEALTH_ID,
+  setHealthAlerts,
   SIGN_IN_AGAIN,
   triggerKey,
   useAnnounce,
+  useAutomation,
+  useAutomationConfig,
+  watched,
   type Announce,
 } from '@/automations';
 import { AddDeviceSheet } from '@/components/add-device';
@@ -194,28 +199,60 @@ export function blockers(entities: HassEntities, a: Announce, auto?: HassEntity,
   return out;
 }
 
-/** "Announce on Echo" for one device or camera: its motion and problems. Shown once an Echo is set up. */
-export function AnnounceRow({ entity, card }: { entity: HassEntity; card?: boolean }) {
-  const { entities, devices } = useHA();
+// `skip` with `ids` added (muted) or taken out.
+const muted = (skip: string[], ids: string[], on: boolean) => (on ? skip.filter((id) => !ids.includes(id)) : [...new Set([...skip, ...ids])]);
+
+/**
+ * Per device or camera: "Announce on Echo" (its motion and problems; once an Echo is set up) and "Alert my phone"
+ * (its problems; while health alerts are on). Both on unless turned off here.
+ */
+export function AlertRows({ entity, card }: { entity: HassEntity; card?: boolean }) {
+  const { creds, entities, devices } = useHA();
   const { saved, save } = useAnnounce();
+  const health = useAutomation(HEALTH_ID);
+  const healthConfig = useAutomationConfig(HEALTH_ID);
   const [draft, setDraft] = useState<Announce>();
-  const a = draft ?? saved;
+  const [healthDraft, setHealthDraft] = useState<string[]>();
   const device = devices[entity.entity_id];
-  const ids = announceable(entities).filter((id) => id === entity.entity_id || (device && devices[id]?.id === device.id));
-  if (!a?.echoes.length || !ids.length) return null;
-  const skip = a.skip ?? [];
-  const row = (
-    <Row
-      label="Announce on Echo"
-      value={!ids.some((id) => skip.includes(id))}
-      onChange={(on) => {
-        const next = { ...a, skip: on ? skip.filter((id) => !ids.includes(id)) : [...new Set([...skip, ...ids])] };
-        setDraft(next);
-        save(next).catch(() => setDraft(undefined));
-      }}
-    />
+  const mine = (ids: string[]) => ids.filter((id) => id === entity.entity_id || (device && devices[id]?.id === device.id));
+
+  const a = draft ?? saved;
+  const echoIds = mine(announceable(entities));
+  const phoneIds = mine([...new Set(Object.values(watched(entities)).flat())]);
+  const notify: string | undefined = healthConfig?.actions?.[0]?.action;
+  const echo = !!a?.echoes.length && echoIds.length > 0;
+  const phone = !!creds && !!health && !!notify && phoneIds.length > 0;
+  if (!echo && !phone) return null;
+
+  const skip = a?.skip ?? [];
+  const healthSkip: string[] = healthDraft ?? healthConfig?.variables?.skip ?? [];
+  const rows = (
+    <>
+      {echo && (
+        <Row
+          label="Announce on Echo"
+          value={!echoIds.some((id) => skip.includes(id))}
+          onChange={(on) => {
+            const next = { ...a!, skip: muted(skip, echoIds, on) };
+            setDraft(next);
+            save(next).catch(() => setDraft(undefined));
+          }}
+        />
+      )}
+      {phone && (
+        <Row
+          label="Alert my phone if it has a problem"
+          value={!phoneIds.some((id) => healthSkip.includes(id))}
+          onChange={(on) => {
+            const next = muted(healthSkip, phoneIds, on);
+            setHealthDraft(next);
+            setHealthAlerts(creds!, notify!, watched(entities), next).catch(() => setHealthDraft(undefined));
+          }}
+        />
+      )}
+    </>
   );
-  return card ? <Card>{row}</Card> : row;
+  return card ? <Card>{rows}</Card> : rows;
 }
 
 function Blockers({ list, call }: { list: Blocker[]; call: ReturnType<typeof useHA>['call'] }) {

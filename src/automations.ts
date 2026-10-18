@@ -330,12 +330,13 @@ export function watchedOf(triggers: any[] = [], tag = ''): Watched {
   };
 }
 
-/** One automation for every "something needs attention" alert, plus Home Assistant restarts. */
-export function setHealthAlerts(creds: Creds, notify: string, w: Watched) {
+/** One automation for every "something needs attention" alert, plus Home Assistant restarts. `skip`: devices muted in their settings. */
+export function setHealthAlerts(creds: Creds, notify: string, w: Watched, skip: string[] = []) {
   return rest(creds, 'POST', HEALTH_ID, {
     alias: 'Smart Home: health alerts',
     description: 'Created by the Smart Home app. Re-save it in the app after adding devices.',
-    triggers: healthTriggers(w),
+    triggers: healthTriggers(without(w, skip)),
+    variables: { skip },
     conditions: [],
     actions: [
       {

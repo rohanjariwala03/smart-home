@@ -3,7 +3,7 @@ import type { HassEntity } from 'home-assistant-js-websocket';
 import { useState } from 'react';
 import { ActionSheetIOS, Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { AnnounceRow } from '@/components/announce-settings';
+import { AlertRows } from '@/components/announce-settings';
 import { useRemoveDevice } from '@/components/remove-devices';
 import { Chip } from '@/components/chip';
 import { ActivityCard, AwayCard, FollowCard, NameRoomCard, RenameButton, TimerCard } from '@/components/device-extras';
@@ -133,7 +133,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
             </Card>
           )}
 
-          <AnnounceRow entity={entity} card />
+          <AlertRows entity={entity} card />
 
           <NameRoomCard entity={entity} device={device} />
 

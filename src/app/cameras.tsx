@@ -15,7 +15,7 @@ import {
   useAutomation,
   useNotifyServices,
 } from '@/automations';
-import { AnnounceRow } from '@/components/announce-settings';
+import { AlertRows } from '@/components/announce-settings';
 import { ArmingCard, MotionLightCard } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
 import { ClipsSheet } from '@/components/clips';
@@ -254,7 +254,7 @@ function Camera({ entity, notify, onClips }: {
         <Disclosure title={doorbell ? 'Doorbell & motion' : 'Motion'} summary={automations.join(' · ') || 'Off'}>
           {motionDetection && <Toggle entity={motionDetection} label="Motion detection" />}
           {motion && <MotionAlerts camera={entity} motion={motion} notify={notify} slug={slug} doorbell={doorbell} />}
-          <AnnounceRow entity={entity} />
+          <AlertRows entity={entity} />
           {motion && <MotionLightCard camera={entity} motion={motion} />}
         </Disclosure>
       )}

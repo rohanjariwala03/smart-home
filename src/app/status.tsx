@@ -16,6 +16,7 @@ import {
   useNotifyServices,
   watched,
   watchedOf,
+  without,
 } from '@/automations';
 import { stateText } from '@/components/device-sheet';
 import { EnergyCard } from '@/components/energy-card';
@@ -226,20 +227,21 @@ function HealthAlerts() {
   const config = useAutomationConfig(HEALTH_ID);
   const [error, setError] = useState<string>();
   const want = watched(entities);
-  const key = JSON.stringify(want);
+  const skip: string[] = config?.variables?.skip ?? [];
+  const key = JSON.stringify(without(want, skip));
   // The ids the saved automation watches, to spot devices added since.
   const savedKey = config && JSON.stringify(watchedOf(config.triggers));
   const target = config?.actions?.[0]?.action ?? notify[0];
 
   // Keep the watch list current: re-save when devices were added or removed in HA.
   useEffect(() => {
-    if (creds && auto && savedKey && target && savedKey !== key) setHealthAlerts(creds, target, JSON.parse(key)).catch(() => {});
-  }, [creds, auto, savedKey, key, target]);
+    if (creds && auto && savedKey && target && savedKey !== key) setHealthAlerts(creds, target, watched(entities), skip).catch(() => {});
+  }, [creds, auto, savedKey, key, target]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!creds) return null;
   const toggle = (on: boolean) => {
     setError(undefined);
-    (on ? setHealthAlerts(creds, notify[0], want) : removeAutomation(creds, HEALTH_ID)).catch((e) => setError(e?.message ?? String(e)));
+    (on ? setHealthAlerts(creds, notify[0], want, skip) : removeAutomation(creds, HEALTH_ID)).catch((e) => setError(e?.message ?? String(e)));
   };
 
   return (
@@ -248,7 +250,7 @@ function HealthAlerts() {
         <View style={styles.flex}>
           <ThemedText>Alert me when something needs attention</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            A device or camera offline for 5 minutes, a Blink connection dropping, a low battery, or Home Assistant restarting.
+            A device or camera offline for 5 minutes, a Blink connection dropping, a low battery, or Home Assistant restarting. To leave a device out, turn off its alert in its settings.
           </ThemedText>
         </View>
         <Switch value={!!auto} disabled={!notify.length} onValueChange={toggle} />
