@@ -32,7 +32,7 @@ const TONE: Record<Tone, string> = { ok: '#30D158', warn: '#FF9F0A', bad: '#FF45
 export default function StatusScreen() {
   const { conn, status, entities, devices } = useHA();
 
-  const offline = mainEntities(entities).filter((e) => e.state === 'unavailable');
+  const offline = mainEntities(entities, devices).filter((e) => e.state === 'unavailable');
   const offlineNames = [...new Set(offline.map((e) => deviceName(devices[e.entity_id]) ?? name(e)))];
   const connections = binaries(entities, 'connectivity');
   const batteries = [
@@ -221,12 +221,12 @@ function CameraHealth({ camera }: { camera: HassEntity }) {
 
 /** One switch for the phone alert; its watch list follows the devices in HA. */
 function HealthAlerts() {
-  const { creds, entities } = useHA();
+  const { creds, entities, devices } = useHA();
   const notify = useNotifyServices();
   const auto = useAutomation(HEALTH_ID);
   const config = useAutomationConfig(HEALTH_ID);
   const [error, setError] = useState<string>();
-  const want = watched(entities);
+  const want = watched(entities, devices);
   const skip: string[] = config?.variables?.skip ?? [];
   const key = JSON.stringify(without(want, skip));
   // The ids the saved automation watches, to spot devices added since.
@@ -235,7 +235,7 @@ function HealthAlerts() {
 
   // Keep the watch list current: re-save when devices were added or removed in HA.
   useEffect(() => {
-    if (creds && auto && savedKey && target && savedKey !== key) setHealthAlerts(creds, target, watched(entities), skip).catch(() => {});
+    if (creds && auto && savedKey && target && savedKey !== key && Object.keys(devices).length) setHealthAlerts(creds, target, want, skip).catch(() => {});
   }, [creds, auto, savedKey, key, target]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!creds) return null;

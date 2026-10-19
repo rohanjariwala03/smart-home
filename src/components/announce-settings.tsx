@@ -54,7 +54,7 @@ function useEchoes() {
 
 /** Speak alerts on Echo speakers, and how to have Siri read them on the iPhone. */
 export function AnnounceSettings() {
-  const { creds, conn, entities, call } = useHA();
+  const { creds, conn, entities, devices, call } = useHA();
   const found = useEchoes();
   const { auto, config, saved, save: store } = useAnnounce();
   const [draft, setDraft] = useState<Announce>();
@@ -63,11 +63,11 @@ export function AnnounceSettings() {
   const a = draft ?? saved ?? NONE;
 
   // Rebuild when cameras or devices are added, removed or renamed.
-  const want = triggerKey(announceTriggers(saved ?? NONE, entities));
+  const want = triggerKey(announceTriggers(saved ?? NONE, entities, devices));
   const have = config && triggerKey(config.triggers);
   useEffect(() => {
     const current = announceOf(config);
-    if (current?.echoes.length && have && have !== want) store(current).catch(() => {});
+    if (current?.echoes.length && have && have !== want && Object.keys(devices).length) store(current).catch(() => {});
   }, [config, have, want]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = (next: Announce) => {
@@ -217,8 +217,8 @@ export function AlertRows({ entity, card }: { entity: HassEntity; card?: boolean
   const mine = (ids: string[]) => ids.filter((id) => id === entity.entity_id || (device && devices[id]?.id === device.id));
 
   const a = draft ?? saved;
-  const echoIds = mine(announceable(entities));
-  const phoneIds = mine([...new Set(Object.values(watched(entities)).flat())]);
+  const echoIds = mine(announceable(entities, devices));
+  const phoneIds = mine([...new Set(Object.values(watched(entities, devices)).flat())]);
   const notify: string | undefined = healthConfig?.actions?.[0]?.action;
   const echo = !!a?.echoes.length && echoIds.length > 0;
   const phone = !!creds && !!health && !!notify && phoneIds.length > 0;
@@ -246,7 +246,7 @@ export function AlertRows({ entity, card }: { entity: HassEntity; card?: boolean
           onChange={(on) => {
             const next = muted(healthSkip, phoneIds, on);
             setHealthDraft(next);
-            setHealthAlerts(creds!, notify!, watched(entities), next).catch(() => setHealthDraft(undefined));
+            setHealthAlerts(creds!, notify!, watched(entities, devices), next).catch(() => setHealthDraft(undefined));
           }}
         />
       )}

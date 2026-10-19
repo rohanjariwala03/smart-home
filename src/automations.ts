@@ -1,7 +1,7 @@
 import { getServices, type Connection, type HassEntities } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
 
-import { byDomain, useHA, type Creds } from '@/ha';
+import { byDomain, parentDevices, players, useHA, type Creds, type Device } from '@/ha';
 import { rest } from '@/schedules';
 import { ADMIN_ONLY } from '@/setup';
 
@@ -284,18 +284,31 @@ const MAIN = ['light', 'switch', 'fan', 'vacuum', 'camera', 'alarm_control_panel
 export const binaries = (entities: HassEntities, cls: string) =>
   byDomain(entities, 'binary_sensor').filter((e) => e.attributes.device_class === cls);
 
-/** Devices that count for health: Blink's motion switches and live-view twins are parts of a camera. */
-export const mainEntities = (entities: HassEntities) =>
-  byDomain(entities, ...MAIN).filter((e) => !e.entity_id.startsWith('switch.blink_proxy_') && !e.attributes.proxy_slug);
+/**
+ * Devices that count for health, one entity per thing you own: not Blink's motion switches or live-view twins, not
+ * settings switches on a speaker/TV/light (Echo Do Not Disturb, Govee music mode), and only the media player the app
+ * shows (a TV is also a Cast device; the Alexa phone app isn't a device).
+ */
+export function mainEntities(entities: HassEntities, devices: Record<string, Device>) {
+  const parent = parentDevices(entities, devices);
+  const shown = new Set(players(entities, devices).map((e) => e.entity_id));
+  return byDomain(entities, ...MAIN).filter(
+    (e) =>
+      !e.entity_id.startsWith('switch.blink_proxy_') &&
+      !e.attributes.proxy_slug &&
+      !(e.entity_id.startsWith('switch.') && parent.has(devices[e.entity_id]?.id)) &&
+      !(e.entity_id.startsWith('media_player.') && !shown.has(e.entity_id)),
+  );
+}
 
 /** `w` without the entities in `skip`. */
 export const without = (w: Watched, skip: string[] = []) =>
   Object.fromEntries(Object.entries(w).map(([k, ids]) => [k, ids.filter((id) => !skip.includes(id))])) as Watched;
 
 /** What health alerts watch, from what's in HA right now. */
-export function watched(entities: HassEntities): Watched {
+export function watched(entities: HassEntities, devices: Record<string, Device>): Watched {
   return {
-    offline: mainEntities(entities).map((e) => e.entity_id),
+    offline: mainEntities(entities, devices).map((e) => e.entity_id),
     disconnected: binaries(entities, 'connectivity').map((e) => e.entity_id),
     lowBattery: binaries(entities, 'battery').map((e) => e.entity_id),
     batteryLevel: byDomain(entities, 'sensor')
@@ -375,17 +388,17 @@ export const announceCameras = (entities: HassEntities): AnnounceCamera[] =>
     .sort((x, y) => Number(y.doorbell) - Number(x.doorbell));
 
 /** Everything that can be announced: camera motion, then each device's problems. */
-export const announceable = (entities: HassEntities) => [
+export const announceable = (entities: HassEntities, devices: Record<string, Device>) => [
   ...announceCameras(entities).map((c) => c.motion),
-  ...new Set(Object.values(watched(entities)).flat()),
+  ...new Set(Object.values(watched(entities, devices)).flat()),
 ];
 
 /** Every camera and device is announced unless it's in `a.skip`. */
-export const announceTriggers = (a: Announce, entities: HassEntities) => [
+export const announceTriggers = (a: Announce, entities: HassEntities, devices: Record<string, Device>) => [
   ...announceCameras(entities)
     .filter((c) => !a.skip?.includes(c.motion))
     .map((c) => ({ trigger: 'state', entity_id: c.motion, to: 'on', id: `${c.doorbell ? 'doorbell' : 'motion'}|${c.name}` })),
-  ...healthTriggers(without(watched(entities), a.skip), 'health|'),
+  ...healthTriggers(without(watched(entities, devices), a.skip), 'health|'),
 ];
 
 /** Ids and entities of `triggers`: what to compare to see if the automation is out of date. */
@@ -393,11 +406,11 @@ export const triggerKey = (triggers: any[] = []) =>
   JSON.stringify(triggers.flatMap((t) => [t.id, ...[t.entity_id ?? []].flat()]).sort());
 
 /** Echo announcements through Alexa Media Player (HACS): doorbell, camera motion and health problems. */
-export function setAnnounce(creds: Creds, a: Announce, entities: HassEntities) {
+export function setAnnounce(creds: Creds, a: Announce, entities: HassEntities, devices: Record<string, Device>) {
   return rest(creds, 'POST', ANNOUNCE_ID, {
     alias: 'Smart Home: Echo announcements',
     description: 'Created by the Smart Home app (Settings › Announcements, and Announce on Echo in each device). Needs Alexa Media Player.',
-    triggers: announceTriggers(a, entities),
+    triggers: announceTriggers(a, entities, devices),
     variables: { skip: a.skip ?? [] },
     // A time condition from `to` until `from` wraps past midnight when needed.
     conditions: a.quiet ? [{ condition: 'time', after: a.quiet.to, before: a.quiet.from }] : [],
@@ -431,12 +444,12 @@ export function announceOf(config?: Record<string, any>): Announce | undefined {
 
 /** The saved announcements, and a save that rebuilds the automation from what's in HA now (none without an Echo). */
 export function useAnnounce() {
-  const { creds, entities } = useHA();
+  const { creds, entities, devices } = useHA();
   const auto = useAutomation(ANNOUNCE_ID);
   const config = useAutomationConfig(ANNOUNCE_ID);
   const save = async (next: Announce) => {
     if (!creds) return;
-    if (next.echoes.length) await setAnnounce(creds, next, entities);
+    if (next.echoes.length) await setAnnounce(creds, next, entities, devices);
     else if (auto) await removeAutomation(creds, ANNOUNCE_ID);
   };
   return { auto, config, saved: announceOf(config), save };
