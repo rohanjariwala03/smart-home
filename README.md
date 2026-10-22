@@ -1,6 +1,6 @@
 # Smart Home
 
-Personal iPhone app (Expo SDK 57 / React Native) for the house: Govee TV lights, Kasa switches, a Shark vacuum, TVs, Echo speakers, and Blink Outdoor 4 cameras plus the Video Doorbell. Home Assistant does all device integration; Alexa keeps working independently. There's also a home-screen widget, a Control Center toggle, Siri intents and an Apple Watch app.
+Personal iPhone app (Expo SDK 57 / React Native) for the house: Govee TV lights, Kasa switches, TVs, Echo speakers, and Blink Outdoor 4 cameras plus the Video Doorbell. Home Assistant does all device integration; Alexa keeps working independently. There's also a home-screen widget, a Control Center toggle, Siri intents and an Apple Watch app.
 
 ```
 iPhone app ──WebSocket──▶ Home Assistant ──▶ TP-Link (Kasa), Matter (Govee), Alexa Media Player, ...
@@ -40,7 +40,6 @@ There are no tests. Before you finish a change, run `npx tsc --noEmit` and `npx 
 | Govee TV Backlight 3 Lite (H6099) | Matter (built in). The model has no Govee LAN Control; pair it with a code from the Govee app. Lights from HA's Govee integration also work |
 | Blink cameras | [Blink Live View Proxy](https://github.com/Teethree89/ha-blink-live-view-proxy) add-on + integration (replaces the official Blink integration) |
 | Echo speakers, announcements | Alexa Media Player (HACS) |
-| Shark vacuum | Shark IQ (built in), for room cleaning |
 | Scenes | Created in HA (Settings › Automations & scenes › Scenes) or in the app |
 
 Create the token under Profile › Security › Long-lived access tokens. Adding, removing or renaming devices, schedules and automations need an admin user's token. If you only need control, a non-admin user is safer.
@@ -50,7 +49,7 @@ Create the token under Profile › Security › Long-lived access tokens. Adding
 - `src/ha.tsx`: HA connection (via `home-assistant-js-websocket`: auth, reconnect, resubscribe), live entity and device registry, `call()` for services (resolves `false` on failure). Also decides what counts as a device: a switch on a camera, speaker, TV, light or fan (an Echo's Do Not Disturb, a Govee light's music mode) is a setting of that device, not a tile.
 - `src/optimistic.ts`: switches and tiles flip the moment they're tapped and hold until HA reports the change (or 15 s), snapping back with an error buzz if the call fails.
 - `src/app/index.tsx` + `src/favourites.tsx` + `components/favourites-sheet.tsx`: Home's favourites, kept in the Keychain. Edit opens a native SwiftUI list (drag to reorder). A copy in the shared keychain (`ha-favourites`) drives the widget when it isn't configured, puts favourites first in Siri's and Control Center's device lists, and goes to the watch.
-- `src/app/devices.tsx` + `components/device-tile.tsx` + `components/device-sheet.tsx`: the Devices tab. Vacuums start or pause from the tile; an Echo plays or pauses. The sheet has the controls (light brightness, warmth and colour; vacuum dock, find, suction and Shark rooms; TV power, volume, playback and input; Echo volume), rename, timers, schedules, other HA entities, alert switches, and Remove device.
+- `src/app/devices.tsx` + `components/device-tile.tsx` + `components/device-sheet.tsx`: the Devices tab. Vacuums start or pause from the tile; an Echo plays or pauses. The sheet has the controls (light brightness, warmth and colour; vacuum dock, find and suction; TV power, volume, playback and input; Echo volume), rename, timers, schedules, other HA entities, alert switches, and Remove device.
 - `components/device-extras.tsx` + `src/automations.ts`: fixed-id automations stored in HA, so they run with the phone off: timers (`smarthome_timer_*`, one-shot), away mode (`smarthome_away_*`), "When this turns on, also turn on…" (`smarthome_follow_*`, optionally only after dark), camera motion alerts (`smarthome_alert_*`), health alerts (`smarthome_health`) and announcements (`smarthome_announce`). Also activity history (HA `history/history_during_period`) and name & room editing.
 - `src/schedules.ts` + `components/schedule-card.tsx`: schedules (time or sunrise/sunset, weekdays) and auto-off, saved as plain HA automations with `smarthome_*` ids, so they can also be edited in HA.
 - `components/scene-list.tsx` + `src/scenes.ts` + `components/scene-editor.tsx`: run any HA scene or script, and make your own. App scenes are HA scripts (`script.smarthome_scene_*`), so Siri, widgets and the watch can run them. They can include TVs; Govee scenes ride in the script's variables and are applied by the app.

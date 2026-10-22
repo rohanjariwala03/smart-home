@@ -1,6 +1,5 @@
 import Slider from '@react-native-community/slider';
 import type { HassEntity } from 'home-assistant-js-websocket';
-import { useState } from 'react';
 import { ActionSheetIOS, Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AlertRows } from '@/components/announce-settings';
@@ -221,13 +220,11 @@ function LightControls({ entity }: { entity: HassEntity }) {
 
 function VacuumControls({ entity }: { entity: HassEntity }) {
   const { call } = useHA();
-  const [rooms, setRooms] = useState<string[]>([]);
   const a = entity.attributes;
   const features: number = a.supported_features ?? 0;
   const cleaning = entity.state === 'cleaning';
   const vac = (service: string, data?: object) => call('vacuum', service, { entity_id: entity.entity_id, ...data });
   const speeds: string[] = a.fan_speed_list ?? [];
-  const known: string[] = a.rooms ?? []; // Shark exposes its mapped rooms here
 
   return (
     <>
@@ -257,27 +254,6 @@ function VacuumControls({ entity }: { entity: HassEntity }) {
               <Chip key={s} label={s} selected={a.fan_speed === s} onPress={() => vac('set_fan_speed', { fan_speed: s })} />
             ))}
           </View>
-        </Card>
-      )}
-
-      {known.length > 0 && (
-        <Card>
-          <ThemedText>Clean specific rooms</ThemedText>
-          <View style={styles.wrap}>
-            {known.map((r) => (
-              <Chip
-                key={r}
-                label={r}
-                selected={rooms.includes(r)}
-                onPress={() => setRooms(rooms.includes(r) ? rooms.filter((x) => x !== r) : [...rooms, r])}
-              />
-            ))}
-          </View>
-          <Button
-            title={rooms.length ? `Clean ${rooms.length === 1 ? rooms[0] : `${rooms.length} rooms`}` : 'Pick rooms'}
-            disabled={!rooms.length}
-            onPress={() => call('sharkiq', 'clean_room', { entity_id: entity.entity_id, rooms }).then(() => setRooms([]))}
-          />
         </Card>
       )}
     </>
