@@ -11,7 +11,7 @@ import {
   type HassEntity,
 } from 'home-assistant-js-websocket';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 
 // home-assistant-js-websocket handles the auth handshake, request ids,
 // reconnect with backoff and re-subscribing after a reconnect.
@@ -96,6 +96,7 @@ export function HAProvider({ children }: { children: ReactNode }) {
   const [conn, setConn] = useState<Connection | null>(null);
   const [live, setLive] = useState<'ready' | 'disconnected' | 'error'>('ready');
   const [error, setError] = useState<string>();
+  const [attempt, setAttempt] = useState(0); // bumped to try connecting again after a failure
   const [entities, setEntities] = useState<HassEntities>({});
   const [registry, setRegistry] = useState<{ areas: Record<string, string>; devices: Record<string, Device> }>(
     EMPTY,
@@ -136,6 +137,7 @@ export function HAProvider({ children }: { children: ReactNode }) {
         connection.addEventListener('disconnected', () => setLive('disconnected'));
         connection.addEventListener('reconnect-error', () => setLive('error'));
         unsub = subscribeEntities(connection, setEntities);
+        setError(undefined);
         setLive('ready');
         setConn(connection);
       },
@@ -149,7 +151,21 @@ export function HAProvider({ children }: { children: ReactNode }) {
       unsub?.();
       c?.close();
     };
-  }, [creds]);
+  }, [creds, attempt]);
+
+  // HA on a sleeping or away Mac can't be reached: keep trying every 15 s, and right away when the app comes back
+  // to the foreground, so the app reconnects by itself once the hub is back. A wrong token isn't retried.
+  const unreachable = !!error && error !== 'Invalid token';
+  useEffect(() => {
+    if (!unreachable) return;
+    const retry = () => setAttempt((n) => n + 1); // the error (and the offline card) stays until a try succeeds
+    const timer = setInterval(retry, 15_000);
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && retry());
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [unreachable]);
 
   const save = async (next: Creds) => {
     await SecureStore.setItemAsync(KEY, JSON.stringify(next));

@@ -1,8 +1,9 @@
-import { SymbolView } from 'expo-symbols';
-import { useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SymbolView, type SFSymbol } from 'expo-symbols';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Chip } from '@/components/chip';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Spacing } from '@/constants/theme';
@@ -22,8 +23,9 @@ export function Screen({ title, subtitle, action, children }: {
   action?: ReactNode;
   children: ReactNode;
 }) {
-  const { status } = useHA();
-  const banner = BANNER[status];
+  const { status, error } = useHA();
+  const offline = useOffline(status, error);
+  const banner = offline ? undefined : BANNER[status];
 
   return (
     <ThemedView style={styles.flex}>
@@ -36,6 +38,7 @@ export function Screen({ title, subtitle, action, children }: {
             </View>
             {action}
           </View>
+          {offline && <HubOffline />}
           {banner && (
             <ThemedView type="backgroundSelected" style={styles.banner}>
               <ThemedText type="small">{banner}</ThemedText>
@@ -44,6 +47,55 @@ export function Screen({ title, subtitle, action, children }: {
           {children}
         </ScrollView>
       </SafeAreaView>
+    </ThemedView>
+  );
+}
+
+// The devices' own apps, which work while the hub is offline. App Store ids; the URL schemes open the app when
+// it's installed, otherwise its App Store page (which has an Open button).
+const APPS: [label: string, icon: SFSymbol, scheme: string, id: number][] = [
+  ['Kasa', 'lightswitch.on', 'kasa://', 1034035493],
+  ['Blink', 'video.fill', 'blink://', 1013961111],
+  ['Govee', 'lightbulb.led.fill', 'govee://', 1395696823],
+  ['Alexa', 'homepod.fill', 'alexa://', 944011620],
+];
+
+/** Hub unreachable (not a wrong token), or disconnected for over 10 s: brief network blips don't count. */
+function useOffline(status: Status, error?: string) {
+  const [long, setLong] = useState(false);
+  useEffect(() => {
+    if (status !== 'disconnected') return;
+    const t = setTimeout(() => setLong(true), 10_000);
+    return () => {
+      clearTimeout(t);
+      setLong(false);
+    };
+  }, [status]);
+  return (status === 'error' && error !== 'Invalid token') || long;
+}
+
+function HubOffline() {
+  return (
+    <ThemedView type="backgroundElement" style={styles.card}>
+      <View style={styles.header}>
+        <SymbolView name="wifi.exclamationmark" size={20} tintColor="#FF9F0A" />
+        <ThemedText type="smallBold" style={styles.flex}>Hub offline</ThemedText>
+      </View>
+      <ThemedText type="small" themeColor="textSecondary">
+        Home Assistant runs on your MacBook, so it can’t be reached while the Mac is asleep, shut down or away from
+        home Wi-Fi. What you see may be out of date, and app schedules, alerts and announcements are paused. Kasa
+        schedules and Alexa keep working. Reconnecting by itself.
+      </ThemedText>
+      <View style={styles.apps}>
+        {APPS.map(([label, icon, scheme, id]) => (
+          <Chip
+            key={label}
+            icon={icon}
+            label={label}
+            onPress={() => Linking.openURL(scheme).catch(() => Linking.openURL(`https://apps.apple.com/app/id${id}`))}
+          />
+        ))}
+      </View>
     </ThemedView>
   );
 }
@@ -97,4 +149,5 @@ const styles = StyleSheet.create({
   banner: { padding: Spacing.three, borderRadius: 12 },
   card: { padding: Spacing.three, borderRadius: 14, gap: Spacing.two },
   dim: { opacity: 0.45 },
+  apps: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
 });
