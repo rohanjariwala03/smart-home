@@ -16,7 +16,17 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  SnappySpringConfig,
+  useAnimatedStyle,
+  useSharedValue,
+  withDecay,
+  withSpring,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
+import { useKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { shareVideo } from '@/components/clips';
@@ -31,8 +41,9 @@ import MicStream from '../../modules/mic-stream';
 // segments carry it. Fetching the playlist starts the camera; /stop frees it.
 // Push-to-talk and camera controls ride the same live-view session (the `session` id).
 // The proxy keeps a copy of every live view, which is what Record saves.
-// Controls fade out a few seconds into playback; tap the video to bring them back. Pinch to zoom (drag to look
-// around), double-tap to zoom back out or, unzoomed, to fill the screen.
+// Controls fade out a few seconds into playback; tap the video to bring them back. Pinch zooms around your fingers,
+// double-tap zooms in where you tap (and back out), drag to look around; swipe down to close. After a minute it asks
+// "Continue?" and pauses if nobody answers, so a forgotten live view doesn't drain the camera's battery.
 export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   creds: Creds;
   slug: string;
@@ -56,8 +67,11 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   const [recording, setRecording] = useState(false);
   const [saving, setSaving] = useState<string>();
   const [fill, setFill] = useState(false);
+  const [paused, setPaused] = useState(false); // nobody answered "Continue?"
+  const [keepUntil, setKeepUntil] = useState(ASK_AFTER); // ask again at this many seconds of watching
 
   useRotation();
+  useKeepAwake(); // auto-lock would end the live view
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => s !== 'active' && onClose());
@@ -80,6 +94,8 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
     setRecording(false);
     setSaving(undefined);
     setStalled(false);
+    setPaused(false);
+    setKeepUntil(ASK_AFTER);
     setAttempt((n) => n + 1);
   }, [setError, setStream]);
 
@@ -175,6 +191,23 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
 
   const playing = live && !ended && !error;
 
+  // "Continue?" every ASK_AFTER seconds of watching (not while recording); no answer within ANSWER_WITHIN pauses and
+  // frees the camera.
+  const pauseLive = useCallback(() => {
+    setPaused(true);
+    setEnded(true);
+    pause(player);
+    if (token) fetch(`${base}/stop?token=${encodeURIComponent(token)}`, { method: 'POST' }).catch(() => {});
+  }, [player, base, token]);
+  const asking = playing && !recording && seconds >= keepUntil;
+  const left = ANSWER_WITHIN - (seconds - keepUntil);
+  useEffect(() => {
+    if (!asking) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    const t = setTimeout(pauseLive, ANSWER_WITHIN * 1000);
+    return () => clearTimeout(t);
+  }, [asking, pauseLive]);
+
   // Controls: shown until playback starts, then hidden after a few idle seconds. They stay up while there's
   // something to read or hold (settings, talking, errors) and always with VoiceOver.
   const [shown, setShown] = useState(true);
@@ -189,19 +222,22 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
     return () => clearTimeout(t);
   }, [visible, pinned, touched]);
   const poke = () => setTouched((n) => n + 1);
-  const zoom = useZoom(width, height);
+  const zoom = useZoom(width, height, onClose);
   const gesture = Gesture.Simultaneous(
     zoom.gesture,
-    Gesture.Exclusive(
-      Gesture.Tap()
-        .numberOfTaps(2)
-        .runOnJS(true)
-        .onEnd(() => (zoom.zoomed() ? zoom.reset() : setFill((f) => !f))),
-      Gesture.Tap().runOnJS(true).onEnd(() => setShown(!visible)),
-    ),
+    Gesture.Exclusive(zoom.doubleTap, Gesture.Tap().runOnJS(true).onEnd(() => setShown(!visible))),
   );
   const message =
-    error ?? (ended ? 'Live view ended' : !live ? 'Connecting to camera…' : stalled ? 'Reconnecting…' : undefined);
+    error ??
+    (paused
+      ? 'Paused to save the camera’s battery'
+      : ended
+        ? 'Live view ended'
+        : !live
+          ? 'Connecting to camera…'
+          : stalled
+            ? 'Reconnecting…'
+            : undefined);
   const side = { paddingLeft: Math.max(insets.left, Spacing.three), paddingRight: Math.max(insets.right, Spacing.three) };
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
@@ -217,7 +253,7 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
             style={StyleSheet.absoluteFill}
             accessible
             accessibilityLabel={`${title} live video`}
-            accessibilityHint="Tap to show or hide the controls. Double-tap to fill the screen.">
+            accessibilityHint="Tap to show or hide the controls. Double-tap to zoom in or out.">
             {token && !error && (
               <Animated.View style={[StyleSheet.absoluteFill, zoom.style]}>
                 <VideoView
@@ -231,6 +267,30 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
             )}
           </View>
         </GestureDetector>
+
+        {zoom.level > 1.05 && !message && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Zoomed ${zoom.level.toFixed(1)} times. Reset zoom`}
+            onPress={zoom.reset}
+            style={[styles.zoomChip, { top: insets.top + (visible ? 76 : Spacing.three) }]}>
+            <Text style={styles.zoomText}>{zoom.level.toFixed(1)}×</Text>
+            <SymbolView name="arrow.uturn.backward" size={12} tintColor="#fff" />
+          </Pressable>
+        )}
+
+        {asking && (
+          <View style={styles.center}>
+            <View style={styles.ask}>
+              <Text style={styles.askTitle}>Continue?</Text>
+              <Text style={styles.askText}>Pausing in {Math.max(0, left)} s to save the camera’s battery.</Text>
+              <View style={styles.row}>
+                <Pill label="Continue" icon="play.fill" onPress={() => setKeepUntil(seconds + ASK_AFTER)} />
+                <Pill label="Stop" icon="pause.fill" onPress={pauseLive} />
+              </View>
+            </View>
+          </View>
+        )}
 
         {message && (
           <View style={styles.center}>
@@ -265,6 +325,7 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
               )}
             </View>
             <Round icon="slider.horizontal.3" label="Camera settings" onPress={() => setPanel(!panel)} />
+            <Round icon="aspectratio" label={fill ? 'Fit to screen' : 'Fill screen'} onPress={() => setFill(!fill)} />
             <Round
               icon={landscape ? 'arrow.down.right.and.arrow.up.left' : 'arrow.up.left.and.arrow.down.right'}
               label={landscape ? 'Exit full screen' : 'Full screen'}
@@ -326,54 +387,95 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   );
 }
 
+const ASK_AFTER = 60;
+const ANSWER_WITHIN = 10;
 const MAX_ZOOM = 5;
+const TAP_ZOOM = 2.5;
 
-/** Pinch to zoom up to 5×, one-finger drag to pan while zoomed, kept inside the screen. Runs on the UI thread. */
-function useZoom(width: number, height: number) {
+/**
+ * Photos-style zoom, on the UI thread. Pinch zooms around the fingers and follows them; double-tap zooms in where you
+ * tap, or back out; one finger pans with momentum while zoomed, kept inside the picture; past the limits it springs
+ * back. Unzoomed, a downward swipe calls `onDismiss`. `level` is the settled zoom, for the zoom chip.
+ */
+function useZoom(width: number, height: number, onDismiss: () => void) {
   const scale = useSharedValue(1);
-  const start = useSharedValue(1);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
-  const startX = useSharedValue(0);
-  const startY = useSharedValue(0);
+  const start = useSharedValue({ scale: 1, x: 0, y: 0, fx: 0, fy: 0 });
+  const [level, setLevel] = useState(1);
 
-  const clamp = (v: number, size: number, s: number) => {
+  const reach = (size: number, s: number) => {
     'worklet';
-    const max = ((s - 1) * size) / 2;
-    return Math.min(max, Math.max(-max, v));
+    return Math.max(0, ((s - 1) * size) / 2);
   };
+  const inside = (v: number, size: number, s: number) => {
+    'worklet';
+    return Math.min(reach(size, s), Math.max(-reach(size, s), v));
+  };
+  const settle = (target: number, tx: number, ty: number) => {
+    'worklet';
+    const s = Math.min(MAX_ZOOM, Math.max(1, target));
+    scale.value = withSpring(s, SnappySpringConfig);
+    x.value = withSpring(inside(tx, width, s), SnappySpringConfig);
+    y.value = withSpring(inside(ty, height, s), SnappySpringConfig);
+    scheduleOnRN(setLevel, s);
+  };
+
   const pinch = Gesture.Pinch()
-    .onStart(() => {
-      start.value = scale.value;
+    .onStart((e) => {
+      start.value = { scale: scale.value, x: x.value, y: y.value, fx: e.focalX - width / 2, fy: e.focalY - height / 2 };
     })
     .onUpdate((e) => {
-      scale.value = Math.min(MAX_ZOOM, Math.max(1, start.value * e.scale));
-      x.value = clamp(x.value, width, scale.value);
-      y.value = clamp(y.value, height, scale.value);
-    });
+      // Keep the spot that was under the fingers under them, wherever they move.
+      const from = start.value;
+      const s = Math.min(MAX_ZOOM * 1.2, Math.max(0.8, from.scale * e.scale));
+      const r = s / from.scale;
+      x.value = e.focalX - width / 2 - (from.fx - from.x) * r;
+      y.value = e.focalY - height / 2 - (from.fy - from.y) * r;
+      scale.value = s;
+    })
+    .onEnd(() => settle(scale.value, x.value, y.value));
+
   const pan = Gesture.Pan()
-    .averageTouches(true)
+    .maxPointers(1)
     .onStart(() => {
-      startX.value = x.value;
-      startY.value = y.value;
+      start.value = { ...start.value, x: x.value, y: y.value };
     })
     .onUpdate((e) => {
-      if (scale.value <= 1) return;
-      x.value = clamp(startX.value + e.translationX, width, scale.value);
-      y.value = clamp(startY.value + e.translationY, height, scale.value);
+      if (scale.value > 1.01) {
+        x.value = inside(start.value.x + e.translationX, width, scale.value);
+        y.value = inside(start.value.y + e.translationY, height, scale.value);
+      } else y.value = Math.max(0, e.translationY); // pulling down to close
+    })
+    .onEnd((e) => {
+      if (scale.value > 1.01) {
+        x.value = withDecay({ velocity: e.velocityX, clamp: [-reach(width, scale.value), reach(width, scale.value)] });
+        y.value = withDecay({ velocity: e.velocityY, clamp: [-reach(height, scale.value), reach(height, scale.value)] });
+      } else if (e.translationY > 120 || e.velocityY > 1000) scheduleOnRN(onDismiss);
+      else y.value = withSpring(0, SnappySpringConfig);
     });
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd((e) => {
+      if (scale.value > 1.01) settle(1, 0, 0);
+      else settle(TAP_ZOOM, -(e.x - width / 2) * (TAP_ZOOM - 1), -(e.y - height / 2) * (TAP_ZOOM - 1));
+    });
+
   const style = useAnimatedStyle(() => ({
     transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
   }));
 
   return {
     gesture: Gesture.Simultaneous(pinch, pan),
+    doubleTap,
     style,
-    zoomed: () => scale.get() > 1.01,
+    level,
     reset: () => {
-      scale.set(withTiming(1));
-      x.set(withTiming(0));
-      y.set(withTiming(0));
+      scale.set(withSpring(1, SnappySpringConfig));
+      x.set(withSpring(0, SnappySpringConfig));
+      y.set(withSpring(0, SnappySpringConfig));
+      setLevel(1);
     },
   };
 }
@@ -583,6 +685,28 @@ const styles = StyleSheet.create({
   bottomScrim: { paddingTop: Spacing.five, experimental_backgroundImage: 'linear-gradient(0deg, rgba(0,0,0,0.55), transparent)' },
   controls: { flexDirection: 'row', alignItems: 'center', gap: Spacing.five },
   big: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  zoomChip: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  zoomText: { color: '#fff', fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  ask: {
+    alignItems: 'center',
+    gap: Spacing.two,
+    padding: Spacing.four,
+    borderRadius: 20,
+    backgroundColor: 'rgba(28,28,30,0.92)',
+    maxWidth: 320,
+  },
+  askTitle: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  askText: { color: 'rgba(255,255,255,0.75)', fontSize: 15, textAlign: 'center', fontVariant: ['tabular-nums'] },
   talking: { backgroundColor: '#FF3B30', transform: [{ scale: 1.08 }] },
   disabled: { opacity: 0.35 },
   talkText: { color: '#fff', fontSize: 15, fontWeight: '600', paddingHorizontal: Spacing.four, textAlign: 'center' },

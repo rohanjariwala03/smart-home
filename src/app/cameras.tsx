@@ -45,8 +45,9 @@ export default function CamerasScreen() {
   const notify = useNotifyServices();
   // smarthome://cameras?live=<slug>, from a motion or doorbell alert.
   const { live } = useLocalSearchParams<{ live?: string }>();
-  // Proxy live cameras are opened from their snapshot camera's card, not listed on their own.
-  const cameras = byDomain(entities, 'camera').filter((e) => !e.attributes.proxy_slug);
+  // Live cameras are opened from their snapshot camera's card, not listed on their own. While a camera is offline
+  // Home Assistant drops its attributes (proxy_slug too), so the entity id is checked as well.
+  const cameras = byDomain(entities, 'camera').filter((e) => !e.attributes.proxy_slug && !e.entity_id.endsWith('_live_view'));
   const liveCamera = live ? cameras.find((e) => e.attributes.snapshot_of === live) : undefined;
   const syncs = byDomain(entities, 'alarm_control_panel').filter(
     (e) => devices[e.entity_id]?.manufacturer === 'Blink',
@@ -200,7 +201,14 @@ function Camera({ entity, notify, onClips }: {
         <RenameButton entity={entity} />
         <FavouriteButton entityId={entity.entity_id} />
       </View>
-      {creds && picture && (
+      {unavailable(entity) ? (
+        // Blink can't reach the camera (or Home Assistant can't reach Blink): say so instead of a blank card.
+        <View style={[styles.image, styles.offline]} accessible accessibilityLabel={`${name(entity)} is offline`}>
+          <SymbolView name="wifi.slash" size={28} tintColor="#fff" />
+          <Text style={styles.offlineText}>Camera offline</Text>
+          <Text style={styles.offlineHint}>Check its batteries and Wi-Fi in the Blink app.</Text>
+        </View>
+      ) : creds && picture && (
         // Tap the snapshot to watch live.
         <Pressable
           accessibilityRole="button"
@@ -290,6 +298,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
+  offline: { alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#3A3A3C' },
+  offlineText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  offlineHint: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
   flex: { flex: 1 },
   syncRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   error: { color: '#E5484D' },

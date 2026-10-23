@@ -42,7 +42,10 @@ export default function StatusScreen() {
   ];
   const low = batteries.filter(isLow);
   const updates = byDomain(entities, 'update').filter((e) => e.state === 'on');
-  const cameras = byDomain(entities, 'camera').filter((e) => e.attributes.snapshot_of);
+  // Blink snapshot cameras; an offline one has lost its attributes but still belongs here, as Offline.
+  const cameras = byDomain(entities, 'camera').filter(
+    (e) => !e.entity_id.endsWith('_live_view') && (e.attributes.snapshot_of || devices[e.entity_id]?.manufacturer === 'Blink'),
+  );
   const problems = Number(blinkSignedOut(entities)) + offlineNames.length + connections.filter((e) => e.state !== 'on').length + low.length + (status === 'ready' ? 0 : 1);
 
   return (
