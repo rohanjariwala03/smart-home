@@ -2,7 +2,7 @@ import { useEventListener } from 'expo';
 import * as Haptics from 'expo-haptics';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -69,13 +69,8 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
   });
   useEventListener(player, 'playToEnd', () => setEnded(true));
 
-  useEffect(() => {
-    if (!live || ended) return;
-    const t = setInterval(() => setSeconds((s) => s + 1), 1000);
-    return () => clearInterval(t);
-  }, [live, ended]);
-
-  const retry = () => {
+  const [stalled, setStalled] = useState(false);
+  const retry = useCallback(() => {
     setError(undefined);
     setStream(undefined);
     setLive(false);
@@ -84,8 +79,36 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
     setMuted(false);
     setRecording(false);
     setSaving(undefined);
+    setStalled(false);
     setAttempt((n) => n + 1);
-  };
+  }, [setError, setStream]);
+
+  // The badge used to say LIVE while the picture had frozen. Watch the playhead instead: stuck for 4 s is a stall,
+  // so jump to the newest video and play; still stuck after 10 s, start the stream again.
+  const progress = useRef({ at: 0, time: 0 });
+  useEventListener(player, 'timeUpdate', ({ currentTime }) => {
+    if (currentTime > progress.current.time + 0.1) progress.current = { at: Date.now(), time: currentTime };
+  });
+  useEffect(() => {
+    if (!live || ended || error) return;
+    progress.current = { at: Date.now(), time: player.currentTime };
+    const t = setInterval(() => {
+      const stuck = Date.now() - progress.current.at;
+      setStalled(stuck > 4000);
+      if (stuck > 10_000) retry();
+      else if (stuck > 4000) {
+        if (player.bufferedPosition > player.currentTime + 0.5) player.currentTime = player.bufferedPosition - 0.5;
+        player.play();
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [live, ended, error, player, retry]);
+
+  useEffect(() => {
+    if (!live || ended || stalled) return;
+    const t = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [live, ended, stalled]);
 
   // Record = end the live view, wait for the proxy to finish writing its copy, then save it.
   // ponytail: saves the whole live view, not just from when Record was tapped; trim with AVAssetExportSession if that matters.
@@ -177,7 +200,8 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
       Gesture.Tap().runOnJS(true).onEnd(() => setShown(!visible)),
     ),
   );
-  const message = error ?? (ended ? 'Live view ended' : !live ? 'Connecting to camera…' : undefined);
+  const message =
+    error ?? (ended ? 'Live view ended' : !live ? 'Connecting to camera…' : stalled ? 'Reconnecting…' : undefined);
   const side = { paddingLeft: Math.max(insets.left, Spacing.three), paddingRight: Math.max(insets.right, Spacing.three) };
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
@@ -394,7 +418,10 @@ export function useLiveStream(base: string, headers: Record<string, string>, att
         : null,
     [base, stream],
   );
-  const player = useVideoPlayer(source, (p) => p.play());
+  const player = useVideoPlayer(source, (p) => {
+    p.timeUpdateEventInterval = 1; // LiveView watches the playhead for stalls
+    p.play();
+  });
   return { stream, setStream, player, error, setError };
 }
 
