@@ -115,7 +115,7 @@ enum HA {
 
   static func states() async throws -> [HAState] {
     try JSONDecoder().decode([HAState].self, from: await request("/api/states"))
-      .filter { domains.contains($0.domain) && !$0.entity_id.hasPrefix("switch.blink_proxy_") && !$0.entity_id.hasSuffix("_motion_detection") && !HA.isEchoSetting($0.entity_id) }
+      .filter { domains.contains($0.domain) && !$0.entity_id.hasSuffix("_motion_detection") && !HA.isEchoSetting($0.entity_id) }
       .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
   }
 
@@ -204,22 +204,24 @@ struct CameraEntity: AppEntity {
   static let typeDisplayRepresentation: TypeDisplayRepresentation = "Camera"
   static let defaultQuery = CameraQuery()
 
-  let id: String // the Blink proxy's camera slug
+  let id: String // the Blink camera's slug
   let name: String
 
   var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
 }
 
 struct CameraQuery: EntityStringQuery {
-  // Blink proxy snapshot cameras (camera.blink_proxy_<slug>, attribute snapshot_of = slug): the ones with live view.
+  // Blink snapshot cameras (attribute snapshot_of = slug): the ones with live view. Blink Live View Proxy's
+  // (camera.blink_proxy_<slug>) are skipped while it's still installed next to Blink Instant Events.
   private struct Camera: Decodable {
+    let entity_id: String
     let attributes: Attributes
     struct Attributes: Decodable { let friendly_name: String?; let snapshot_of: String? }
   }
 
   func suggestedEntities() async throws -> [CameraEntity] {
     try JSONDecoder().decode([Camera].self, from: await HA.request("/api/states")).compactMap { c in
-      c.attributes.snapshot_of.map { CameraEntity(id: $0, name: c.attributes.friendly_name ?? $0) }
+      c.entity_id.hasPrefix("camera.blink_proxy_") ? nil : c.attributes.snapshot_of.map { CameraEntity(id: $0, name: c.attributes.friendly_name ?? $0) }
     }
   }
 

@@ -2,13 +2,13 @@ import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Alert, Image, Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import {
   alertId,
+  BLINK_REAUTH,
   blinkSignedOut,
   motionLightId,
-  restartBlinkProxy,
   SIGN_IN_AGAIN,
   removeAutomation,
   setAlert,
@@ -34,11 +34,11 @@ const BLINK_APP_STORE = 'https://apps.apple.com/app/id1013961111';
 // Works with either Blink integration:
 // - HA's own Blink integration: camera.<name> (snapshots only), plus a motion-detection switch,
 //   motion binary_sensor and battery/temperature on the same device; blink.trigger_camera takes a new snapshot.
-// - Blink Live View Proxy (github.com/Teethree89/ha-blink-live-view-proxy), which adds live view:
-//   camera.blink_proxy_<slug> (snapshot_of = slug), a live camera with proxy_slug = slug,
-//   binary_sensor/button/switch.blink_proxy_<slug>_{motion,refresh_snapshot,motion_detection}.
+// - Blink Instant Events (github.com/rohanjariwala03/ha-blink-instant-events), which adds live view and instant
+//   motion: camera.<slug> (snapshot_of = slug), a live camera with proxy_slug = slug, and
+//   binary_sensor/button/switch.<slug>_{motion,refresh_snapshot,motion_detection} (ids may start with the area).
 export default function CamerasScreen() {
-  const { conn, creds, entities, devices, call } = useHA();
+  const { creds, entities, devices, call } = useHA();
   const [clips, setClips] = useState<string | true>(); // camera slug, or true for all
   const [grid, setGrid] = useState(false);
   const [detail, setDetail] = useState<string>();
@@ -49,7 +49,7 @@ export default function CamerasScreen() {
   const cameras = byDomain(entities, 'camera').filter((e) => !e.attributes.proxy_slug);
   const liveCamera = live ? cameras.find((e) => e.attributes.snapshot_of === live) : undefined;
   const syncs = byDomain(entities, 'alarm_control_panel').filter(
-    (e) => e.entity_id.includes('.blink_proxy_') || devices[e.entity_id]?.manufacturer === 'Blink',
+    (e) => devices[e.entity_id]?.manufacturer === 'Blink',
   );
 
   return (
@@ -69,18 +69,7 @@ export default function CamerasScreen() {
           <ThemedText type="small">{SIGN_IN_AGAIN}</ThemedText>
           {creds && (
             <View style={styles.actions}>
-              <Chip icon="person.badge.key.fill" label="Sign in again" onPress={() => Linking.openURL(`${creds.url}/blink-liveview-proxy-auth`)} />
-              <Chip
-                icon="arrow.clockwise"
-                label="Reconnect cameras"
-                disabled={!conn}
-                onPress={() =>
-                  conn && restartBlinkProxy(conn).then(
-                    () => Alert.alert('Reconnecting', 'The cameras come back in about a minute.'),
-                    (e) => Alert.alert('Couldn’t reconnect', e?.message ?? String(e)),
-                  )
-                }
-              />
+              <Chip icon="person.badge.key.fill" label="Sign in again" onPress={() => Linking.openURL(creds.url + BLINK_REAUTH)} />
             </View>
           )}
         </Card>

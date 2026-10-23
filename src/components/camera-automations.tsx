@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
 
 import {
-  blinkDelay,
   arriveId,
   leaveId,
   motionLightId,
@@ -158,7 +157,7 @@ export function MotionLightCard({ camera, motion }: { camera: HassEntity; motion
           <Row label="Only after dark" value={m.darkOnly} onChange={(darkOnly) => save({ ...m, darkOnly })} />
           <ThemedText type="small" themeColor="textSecondary">
             {m.lights.length ? 'More motion keeps them on longer. ' : 'Pick the lights to turn on. '}
-            Blink reports motion on its next check, so lights can come on up to {blinkDelay(entities)} late.
+            Motion arrives within seconds while the cameras are armed.
           </ThemedText>
         </>
       )}

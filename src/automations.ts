@@ -1,9 +1,8 @@
-import { getServices, type Connection, type HassEntities } from 'home-assistant-js-websocket';
+import { getServices, type HassEntities } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
 
 import { byDomain, parentDevices, players, useHA, type Creds, type Device } from '@/ha';
 import { rest } from '@/schedules';
-import { ADMIN_ONLY } from '@/setup';
 
 // One-of-a-kind automations with fixed ids, so they're found again by id alone:
 //   smarthome_timer_<entity>   one-shot "turn off/on at …", disables itself after firing
@@ -28,26 +27,18 @@ export const followId = (entity: string) => `smarthome_follow_${slug(entity)}`;
 export const HEALTH_ID = 'smarthome_health';
 export const ANNOUNCE_ID = 'smarthome_announce';
 
-/** The Blink proxy's "last Blink refresh" sensor; its `state` attribute is "auth_failed" once Blink signs it out. */
-export const BLINK_POLL = 'sensor.blink_liveview_proxy_last_blink_refresh';
-export const blinkSignedOut = (entities: HassEntities) => entities[BLINK_POLL]?.attributes.state === 'auth_failed';
-/** How late motion can show up: the proxy only sees a clip on its next Blink refresh. */
-export function blinkDelay(entities: HassEntities) {
-  const s = Number(entities[BLINK_POLL]?.attributes.interval) || 300;
-  return s < 120 ? `${s} seconds` : `${Math.round(s / 60)} minutes`;
-}
+/**
+ * Blink Instant Events' "last Blink refresh" sensor; its `state` attribute is "auth_failed" once Blink signs it out.
+ * Found by suffix: Home Assistant puts the device's area in front of new entity ids.
+ */
+export const blinkPoll = (entities: HassEntities) =>
+  Object.values(entities).find((e) => e.entity_id.startsWith('sensor.') && e.entity_id.endsWith('blink_instant_events_last_blink_refresh'));
+export const blinkSignedOut = (entities: HassEntities) => blinkPoll(entities)?.attributes.state === 'auth_failed';
 const BLINK_SIGNED_OUT = 'Blink signed out. Sign in again in Home Assistant';
 export const SIGN_IN_AGAIN =
-  'Blink signed Home Assistant out, so cameras show as offline. Sign in again: in Home Assistant open Blink Live View Proxy › Authentication › Resuthenticate and enter the code Blink sends. Then tap Reconnect cameras.';
-
-// After a failed refresh the proxy waits up to an hour before trying Blink again, even after a new
-// sign-in; restarting the add-on (it keeps the saved sign-in) makes it reconnect now. Admin token.
-export const restartBlinkProxy = (conn: Connection) =>
-  conn
-    .sendMessagePromise({ type: 'supervisor/api', endpoint: '/addons/a54c2c78_blink_liveview_proxy/restart', method: 'post', timeout: null })
-    .catch((e) => {
-      throw new Error(e?.code === 'unauthorized' ? ADMIN_ONLY : (e?.message ?? 'Couldn’t restart the Blink proxy'));
-    });
+  'Blink signed Home Assistant out, so cameras show as offline. Sign in again: in Home Assistant open Settings › Devices & services › Blink Instant Events › Re-authenticate and enter the code Blink texts you. The cameras come back by themselves.';
+/** Where to sign Blink in again. */
+export const BLINK_REAUTH = '/config/integrations/integration/blink_instant_events';
 
 
 /** The automation entity with this config id, if HA has it. */
@@ -294,7 +285,6 @@ export function mainEntities(entities: HassEntities, devices: Record<string, Dev
   const shown = new Set(players(entities, devices).map((e) => e.entity_id));
   return byDomain(entities, ...MAIN).filter(
     (e) =>
-      !e.entity_id.startsWith('switch.blink_proxy_') &&
       !e.attributes.proxy_slug &&
       !(e.entity_id.startsWith('switch.') && parent.has(devices[e.entity_id]?.id)) &&
       !(e.entity_id.startsWith('media_player.') && !shown.has(e.entity_id)),
@@ -314,7 +304,7 @@ export function watched(entities: HassEntities, devices: Record<string, Device>)
     batteryLevel: byDomain(entities, 'sensor')
       .filter((e) => e.attributes.device_class === 'battery')
       .map((e) => e.entity_id),
-    blinkAuth: entities[BLINK_POLL] ? [BLINK_POLL] : [],
+    blinkAuth: [blinkPoll(entities)?.entity_id ?? []].flat(),
   };
 }
 

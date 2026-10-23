@@ -17,6 +17,12 @@ import { Alert, AppState } from 'react-native';
 // reconnect with backoff and re-subscribing after a reconnect.
 
 export type Creds = { url: string; token: string };
+
+// Blink Live View Proxy's entities. Blink Instant Events replaced it; while both are installed the app shows only the
+// new one's (otherwise every camera, alarm and sensor would show twice). Delete once the proxy is uninstalled.
+const OLD_BLINK = /^[a-z_]+\.(blink_proxy_|blink_liveview_proxy|blink_live_view_proxy|blink_\w+_blink_live_)/;
+const withoutOldBlink = (all: HassEntities) =>
+  Object.fromEntries(Object.entries(all).filter(([id]) => !OLD_BLINK.test(id))) as HassEntities;
 export type Status = 'loading' | 'no-config' | 'connecting' | 'ready' | 'disconnected' | 'error';
 
 type HA = {
@@ -136,7 +142,7 @@ export function HAProvider({ children }: { children: ReactNode }) {
         });
         connection.addEventListener('disconnected', () => setLive('disconnected'));
         connection.addEventListener('reconnect-error', () => setLive('error'));
-        unsub = subscribeEntities(connection, setEntities);
+        unsub = subscribeEntities(connection, (all) => setEntities(withoutOldBlink(all)));
         setError(undefined);
         setLive('ready');
         setConn(connection);
@@ -248,7 +254,6 @@ export function switchables(entities: HassEntities, devices: Record<string, Devi
   const parent = parentDevices(entities, devices);
   return byDomain(entities, 'light', 'switch', 'fan', 'input_boolean').filter(
     (e) =>
-      !e.entity_id.startsWith('switch.blink_proxy_') &&
       !e.entity_id.endsWith('_motion_detection') && // in case the registry isn't readable
       !(e.entity_id.startsWith('switch.') && parent.has(devices[e.entity_id]?.id)),
   );

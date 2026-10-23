@@ -399,7 +399,7 @@ export function useLiveStream(base: string, headers: Record<string, string>, att
 }
 
 export const cameraBase = (creds: Creds, slug: string) =>
-  `${creds.url}/api/blink_liveview_proxy/cameras/${encodeURIComponent(slug)}`;
+  `${creds.url}/api/blink_instant_events/cameras/${encodeURIComponent(slug)}`;
 
 type Controls = {
   capabilities: Record<string, boolean>;

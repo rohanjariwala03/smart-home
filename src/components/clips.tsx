@@ -66,7 +66,7 @@ export function ClipsSheet({ camera, onClose }: { camera?: string; onClose: () =
   useEffect(() => {
     if (!creds) return;
     let cancelled = false;
-    fetch(`${creds.url}/api/blink_liveview_proxy/clips?source=${source}&hours=${DAYS * 24}&limit=100&pages=10`, {
+    fetch(`${creds.url}/api/blink_instant_events/clips?source=${source}&hours=${DAYS * 24}&limit=100&pages=10`, {
       headers: auth(creds),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Couldn't load clips (HTTP ${r.status}).`))))

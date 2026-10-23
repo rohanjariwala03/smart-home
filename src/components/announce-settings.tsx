@@ -9,7 +9,6 @@ import {
   announceCameras,
   announceOf,
   announceTriggers,
-  blinkDelay,
   blinkSignedOut,
   HEALTH_ID,
   setHealthAlerts,
@@ -138,7 +137,7 @@ export function AnnounceSettings() {
             <Chip icon="speaker.wave.2.fill" label="Test announcement" disabled={!a.echoes.length} onPress={test} />
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            Motion only counts once Blink saves a clip (a Blink subscription, or a USB drive in the Sync Module), and the Echo may speak up to {blinkDelay(entities)} later.
+            Motion is spoken within seconds, while the cameras are armed.
           </ThemedText>
         </>
       )}

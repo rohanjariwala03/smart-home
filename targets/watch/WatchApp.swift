@@ -91,14 +91,15 @@ final class Home: ObservableObject {
 
   var cameras: [WState] {
     let doorbells = Set(states.filter { $0.attributes.camera_type == "doorbell" }.compactMap(\.attributes.proxy_slug))
-    return pinned(states.filter { $0.attributes.snapshot_of != nil }
+    // Skips Blink Live View Proxy's cameras while it's still installed next to Blink Instant Events.
+    return pinned(states.filter { $0.attributes.snapshot_of != nil && !$0.entity_id.hasPrefix("camera.blink_proxy_") }
       .sorted { doorbells.contains($0.attributes.snapshot_of!) && !doorbells.contains($1.attributes.snapshot_of!) })
   }
 
   var devices: [WState] {
     pinned(states.filter { s in
       ["light", "switch", "fan", "input_boolean"].contains(s.domain)
-        && !s.entity_id.hasPrefix("switch.blink_proxy_") && !s.entity_id.hasSuffix("_motion_detection")
+        && !s.entity_id.hasSuffix("_motion_detection")
         // Settings of another device (an Echo's, a Govee light's), not devices.
         && !["_do_not_disturb", "_shuffle", "_repeat", "_amazon_kids", "_music_mode", "_dreamview"].contains { s.entity_id.hasSuffix($0) }
     })
@@ -211,7 +212,7 @@ struct CameraView: View {
         Button(busy ? "Taking snapshot…" : "New snapshot") {
           busy = true
           Task {
-            // camera.blink_proxy_<slug> → button.blink_proxy_<slug>_refresh_snapshot
+            // camera.<slug> → button.<slug>_refresh_snapshot
             await home.call("button", "press", "button.\(camera.entity_id.split(separator: ".")[1])_refresh_snapshot")
             try? await Task.sleep(for: .seconds(6))
             await home.refresh()

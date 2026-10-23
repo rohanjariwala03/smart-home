@@ -5,6 +5,7 @@ import { StyleSheet, Switch, View } from 'react-native';
 
 import {
   binaries,
+  blinkPoll,
   blinkSignedOut,
   SIGN_IN_AGAIN,
   HEALTH_ID,
@@ -70,7 +71,7 @@ export default function StatusScreen() {
               tone={e.state === 'on' ? 'ok' : 'bad'}
             />
           ))}
-          <BlinkPoll entity={entities['sensor.blink_liveview_proxy_last_blink_refresh']} />
+          <BlinkPoll entity={blinkPoll(entities)} />
         </Card>
       )}
 
@@ -165,7 +166,7 @@ function wifi(e?: HassEntity): [string, Tone] {
 /** One Blink camera, like its device page in HA: connection, battery, signal, temperature, motion. */
 function CameraHealth({ camera }: { camera: HassEntity }) {
   const { entities } = useHA();
-  const obj = camera.entity_id.split('.')[1]; // blink_proxy_<slug>
+  const obj = camera.entity_id.split('.')[1]; // <area>_<slug>, e.g. cameras_outdoor
   const slug = camera.attributes.snapshot_of;
   const live = Object.values(entities).find((e) => e.entity_id.startsWith('camera.') && e.attributes.proxy_slug === slug);
   const get = (id: string) => entities[id] as HassEntity | undefined;
