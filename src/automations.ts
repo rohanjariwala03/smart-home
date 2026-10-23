@@ -7,7 +7,9 @@ import { rest } from '@/schedules';
 // One-of-a-kind automations with fixed ids, so they're found again by id alone:
 //   smarthome_timer_<entity>   one-shot "turn off/on at …", disables itself after firing
 //   smarthome_away_<entity>    away mode: random on/off in the evening
-//   smarthome_alert_<camera>   phone notification with a snapshot when a camera sees motion
+//   smarthome_alert_<camera>   phone notification with a snapshot when a camera sees motion (or, with Blink Vision,
+//                              only for what was in the clip: someone unknown, a vehicle…, with the analyzed frame)
+//   smarthome_doorbelltv_<camera>  doorbell press shows the doorbell's live view on the TV
 //   smarthome_night_<alarm>    arm at night, disarm in the morning
 //   smarthome_leave_<alarm>    arm when everyone has left home; smarthome_arrive_<alarm> disarms on return
 //   smarthome_motionlight_<camera>  camera motion after dark switches lights on for a few minutes
@@ -24,6 +26,7 @@ export const leaveId = (alarm: string) => `smarthome_leave_${slug(alarm)}`;
 export const arriveId = (alarm: string) => `smarthome_arrive_${slug(alarm)}`;
 export const motionLightId = (camera: string) => `smarthome_motionlight_${slug(camera)}`;
 export const followId = (entity: string) => `smarthome_follow_${slug(entity)}`;
+export const doorbellTvId = (camera: string) => `smarthome_doorbelltv_${slug(camera)}`;
 export const HEALTH_ID = 'smarthome_health';
 export const ANNOUNCE_ID = 'smarthome_announce';
 
@@ -125,39 +128,101 @@ export function setAway(creds: Creds, entity: string, name: string) {
   });
 }
 
+/** What a smart alert can be sent for, from Blink Vision's look at each clip. */
+export const SMART_KINDS = [
+  ['unknown', 'Someone I don’t know'],
+  ['known', 'People I know'],
+  ['vehicle', 'Vehicles'],
+  ['animal', 'Animals'],
+  ['other', 'Anything else'],
+] as const;
+export type SmartKind = (typeof SMART_KINDS)[number][0];
+/** Blink Instant Events' event entity on the camera's device fires `detection` (and `doorbell_press`). */
+export type Smart = { device: string; event: string; alertFor: SmartKind[] };
+
+// Which kinds a detection is: someone unknown (an unknown face, or a person whose face wasn't seen), someone known…
+const KINDS = `{% set a = trigger.to_state.attributes %}{% set k = [] %}\
+{% if a.unknown_faces or ('person' in a.labels and not a.people) %}{% set k = k + ['unknown'] %}{% endif %}\
+{% if a.people %}{% set k = k + ['known'] %}{% endif %}\
+{% if 'vehicle' in a.labels %}{% set k = k + ['vehicle'] %}{% endif %}\
+{% if 'animal' in a.labels %}{% set k = k + ['animal'] %}{% endif %}\
+{% if not a.labels %}{% set k = k + ['other'] %}{% endif %}`;
+
 /**
- * Motion alert to the Home Assistant companion app, with the camera's snapshot attached.
- * With a proxy `slug`, tapping it (or its Live view button) opens this app straight to live view.
- * Blink doesn't report doorbell presses, so a doorbell's alert is its motion (a press records a
- * clip), sent as time-sensitive so it gets through Focus.
+ * Alert to the Home Assistant companion app, with a picture. With a proxy `slug`, tapping it (or its Live view
+ * button) opens this app straight to live view. A doorbell's alert is time-sensitive, so it gets through Focus.
+ * - Plain: on every motion, with the camera's snapshot.
+ * - `smart`: once Blink Vision has read the clip (~15-40 s), only for the kinds in `alertFor`, saying who or what it
+ *   was, with the analyzed frame. A doorbell press still alerts at once; its detection then updates that alert.
  */
-export function setAlert(creds: Creds, camera: string, motion: string, name: string, notify: string, slug?: string, doorbell = false) {
+export function setAlert(creds: Creds, camera: string, motion: string, name: string, notify: string, slug?: string, doorbell = false, smart?: Smart) {
   const live = slug && `smarthome://cameras?live=${encodeURIComponent(slug)}`;
+  const notification = (message: string, image: string) => ({
+    action: notify,
+    data: {
+      title: name,
+      message,
+      data: {
+        image,
+        group: 'motion',
+        tag: alertId(camera),
+        ...(live && { url: live, actions: [{ action: 'URI', title: 'Live view', uri: live }] }),
+        ...(doorbell && { push: { 'interruption-level': 'time-sensitive' } }),
+      },
+    },
+  });
+  if (!smart)
+    return rest(creds, 'POST', alertId(camera), {
+      alias: `${name}: ${doorbell ? 'doorbell' : 'motion'} alert`,
+      description: 'Created by the Smart Home app',
+      triggers: [{ trigger: 'state', entity_id: motion, to: 'on' }],
+      conditions: [],
+      actions: [notification(doorbell ? 'Someone’s at the door' : 'Motion detected', `/api/camera_proxy/${camera}`)],
+      mode: 'single',
+      max_exceeded: 'silent',
+    });
+  const on = (type: string) => ({ trigger: 'device', domain: 'blink_instant_events', device_id: smart.device, entity_id: smart.event, type, id: type });
   return rest(creds, 'POST', alertId(camera), {
-    alias: `${name}: ${doorbell ? 'doorbell' : 'motion'} alert`,
-    description: 'Created by the Smart Home app',
-    triggers: [{ trigger: 'state', entity_id: motion, to: 'on' }],
-    conditions: [],
-    actions: [
+    alias: `${name}: smart alert`,
+    description: 'Created by the Smart Home app. Needs the Blink Vision add-on.',
+    triggers: [...(doorbell ? [on('doorbell_press')] : []), on('detection')],
+    variables: { alert_for: smart.alertFor },
+    conditions: [
       {
-        action: notify,
-        data: {
-          title: name,
-          message: doorbell ? 'Someone’s at the door' : 'Motion detected',
-          data: {
-            image: `/api/camera_proxy/${camera}`,
-            group: 'motion',
-            tag: alertId(camera),
-            ...(live && { url: live, actions: [{ action: 'URI', title: 'Live view', uri: live }] }),
-            ...(doorbell && { push: { 'interruption-level': 'time-sensitive' } }),
-          },
-        },
+        condition: 'template',
+        value_template: `{% if trigger.id == 'doorbell_press' %}true{% else %}${KINDS}{{ k | select('in', alert_for) | list | count > 0 }}{% endif %}`,
       },
     ],
-    mode: 'single',
+    actions: [
+      notification(
+        `{{ "Someone’s at the door" if trigger.id == 'doorbell_press' else trigger.to_state.attributes.summary }}`,
+        `{{ '/api/camera_proxy/${camera}' if trigger.id == 'doorbell_press' else trigger.to_state.attributes.image }}`,
+      ),
+    ],
+    mode: 'queued',
+    max: 5,
     max_exceeded: 'silent',
   });
 }
+
+/** The saved smart-alert kinds, or undefined for a plain motion alert. */
+export const smartOf = (config?: Record<string, any>): SmartKind[] | undefined => config?.variables?.alert_for;
+
+/** Doorbell press plays the doorbell's live view on these TVs for a minute (only TVs that are on). */
+export const setDoorbellTv = (creds: Creds, camera: string, name: string, device: string, event: string, tvs: string[]) =>
+  rest(creds, 'POST', doorbellTvId(camera), {
+    alias: `${name}: show on TV when the doorbell rings`,
+    description: 'Created by the Smart Home app',
+    triggers: [{ trigger: 'device', domain: 'blink_instant_events', device_id: device, entity_id: event, type: 'doorbell_press' }],
+    conditions: [],
+    actions: tvs.map((tv) => ({ action: 'blink_instant_events.show_on_tv', data: { camera, media_player: tv }, continue_on_error: true })),
+    mode: 'single',
+    max_exceeded: 'silent',
+  });
+
+/** The TVs a doorbell automation shows on. */
+export const doorbellTvsOf = (config?: Record<string, any>): string[] =>
+  (config?.actions ?? []).map((a: any) => a.data?.media_player).filter(Boolean);
 
 /** Arm the Blink system at `arm` every night and disarm it at `disarm` ("HH:MM:SS"). */
 export function setNight(creds: Creds, alarm: string, name: string, arm: string, disarm: string) {

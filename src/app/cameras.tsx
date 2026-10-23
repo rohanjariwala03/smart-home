@@ -12,22 +12,29 @@ import {
   SIGN_IN_AGAIN,
   removeAutomation,
   setAlert,
+  SMART_KINDS,
+  smartOf,
   useAutomation,
+  useAutomationConfig,
   useNotifyServices,
+  type SmartKind,
 } from '@/automations';
 import { AlertRows } from '@/components/announce-settings';
-import { ArmingCard, MotionLightCard } from '@/components/camera-automations';
+import { ArmingCard, DoorbellTvCard, MotionLightCard } from '@/components/camera-automations';
 import { Chip } from '@/components/chip';
-import { ClipsSheet } from '@/components/clips';
+import { ClipsSheet, type Clip } from '@/components/clips';
 import { RenameButton } from '@/components/device-extras';
 import { DeviceSheet, stateText } from '@/components/device-sheet';
 import { LiveGrid } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
+import { PeopleSheet } from '@/components/people-sheet';
 import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
+import { TodayStrip } from '@/components/today-strip';
 import { armStatus, Toggle } from '@/components/toggle';
 import { FavouriteButton } from '@/favourites';
 import { byDomain, name, unavailable, useHA } from '@/ha';
+import { usePeople } from '@/vision';
 
 const BLINK_APP_STORE = 'https://apps.apple.com/app/id1013961111';
 
@@ -40,6 +47,9 @@ const BLINK_APP_STORE = 'https://apps.apple.com/app/id1013961111';
 export default function CamerasScreen() {
   const { creds, entities, devices, call } = useHA();
   const [clips, setClips] = useState<string | true>(); // camera slug, or true for all
+  const [clip, setClip] = useState<Clip>(); // opened from Today
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const vision = usePeople().people != null; // Blink Vision is running
   const [grid, setGrid] = useState(false);
   const [detail, setDetail] = useState<string>();
   const notify = useNotifyServices();
@@ -61,6 +71,7 @@ export default function CamerasScreen() {
           <View style={styles.chips}>
             <Chip icon="square.grid.2x2.fill" label="Live" onPress={() => setGrid(true)} />
             <Chip icon="film.stack" label="Clips" onPress={() => setClips(true)} />
+            <Chip icon="person.2.fill" label="People" onPress={() => setPeopleOpen(true)} />
           </View>
         )
       }>
@@ -108,8 +119,9 @@ export default function CamerasScreen() {
           </Disclosure>
         </Card>
       ))}
+      <TodayStrip onOpen={setClip} />
       {cameras.map((e) => (
-        <Camera key={e.entity_id} entity={e} notify={notify[0]} onClips={setClips} />
+        <Camera key={e.entity_id} entity={e} notify={notify[0]} vision={vision} onClips={setClips} />
       ))}
       {grid && creds && (
         <LiveGrid
@@ -129,6 +141,8 @@ export default function CamerasScreen() {
       )}
       {detail && entities[detail] && <DeviceSheet entity={entities[detail]} onClose={() => setDetail(undefined)} />}
       {clips && <ClipsSheet camera={clips === true ? undefined : clips} onClose={() => setClips(undefined)} />}
+      {clip && <ClipsSheet initial={clip} onClose={() => setClip(undefined)} />}
+      {peopleOpen && <PeopleSheet onClose={() => setPeopleOpen(false)} />}
       <View style={styles.chips}>
         <Chip icon="arrow.up.forward.app" label="Open Blink app" onPress={() => Linking.openURL(BLINK_APP_STORE)} />
       </View>
@@ -136,9 +150,10 @@ export default function CamerasScreen() {
   );
 }
 
-function Camera({ entity, notify, onClips }: {
+function Camera({ entity, notify, vision, onClips }: {
   entity: HassEntity;
   notify?: string;
+  vision: boolean;
   onClips: (slug: string) => void;
 }) {
   const { creds, entities, devices, call } = useHA();
@@ -160,6 +175,9 @@ function Camera({ entity, notify, onClips }: {
     );
 
   const live = slug ? liveEntity(entities, slug) : undefined;
+  // Blink Instant Events' event entity on this camera: instant doorbell presses, and Blink Vision's detections.
+  const event = device && Object.keys(entities).find((id) => id.startsWith('event.') && devices[id]?.id === device.id);
+  const events = device && event ? { device: device.id, event } : undefined;
   const motion = entities[`binary_sensor.${objectId}_motion`] ?? sibling('binary_sensor', 'motion');
   const refresh = entities[`button.${objectId}_refresh_snapshot`];
   const motionDetection = entities[`switch.${objectId}_motion_detection`] ?? sibling('switch');
@@ -250,7 +268,10 @@ function Camera({ entity, notify, onClips }: {
       {(motionDetection || motion) && (
         <Disclosure title={doorbell ? 'Doorbell & motion' : 'Motion'} summary={automations.join(' · ') || 'Off'}>
           {motionDetection && <Toggle entity={motionDetection} label="Motion detection" />}
-          {motion && <MotionAlerts camera={entity} motion={motion} notify={notify} slug={slug} doorbell={doorbell} />}
+          {motion && (
+            <MotionAlerts camera={entity} motion={motion} notify={notify} slug={slug} doorbell={doorbell} events={events} vision={vision} />
+          )}
+          {doorbell && events && <DoorbellTvCard camera={entity} {...events} />}
           <AlertRows entity={entity} />
           {motion && <MotionLightCard camera={entity} motion={motion} />}
         </Disclosure>
@@ -309,16 +330,22 @@ const styles = StyleSheet.create({
 const liveEntity = (entities: HassEntities, slug: string) =>
   Object.values(entities).find((e) => e.entity_id.startsWith('camera.') && e.attributes.proxy_slug === slug);
 
-/** Phone notification with a snapshot when this camera sees motion (via the HA companion app). */
-function MotionAlerts({ camera, motion, notify, slug, doorbell }: {
+/**
+ * Phone notification when this camera sees motion (via the HA companion app): on every motion, or, with Blink Vision,
+ * only for what was in the clip (someone unknown, a vehicle…) with the frame it judged.
+ */
+function MotionAlerts({ camera, motion, notify, slug, doorbell, events, vision }: {
   camera: HassEntity;
   motion: HassEntity;
   notify?: string;
   slug?: string;
   doorbell: boolean;
+  events?: { device: string; event: string };
+  vision: boolean;
 }) {
   const { creds } = useHA();
   const auto = useAutomation(alertId(camera.entity_id));
+  const saved = smartOf(useAutomationConfig(alertId(camera.entity_id)));
   const [error, setError] = useState<string>();
 
   if (!notify)
@@ -328,20 +355,48 @@ function MotionAlerts({ camera, motion, notify, slug, doorbell }: {
       </ThemedText>
     );
 
-  const toggle = (on: boolean) => {
+  const on = auto?.state === 'on';
+  const smart = vision && events;
+  // undefined: every motion; else only for these kinds (never empty: dropping the last one goes back to every motion)
+  const save = (enabled: boolean, alertFor?: SmartKind[]) => {
     if (!creds) return;
     setError(undefined);
-    (on ? setAlert(creds, camera.entity_id, motion.entity_id, name(camera), notify, slug, doorbell) : removeAutomation(creds, alertId(camera.entity_id))).catch(
-      (e) => setError(e?.message ?? String(e)),
-    );
+    const kinds = smart && alertFor?.length ? { ...events, alertFor } : undefined;
+    (enabled
+      ? setAlert(creds, camera.entity_id, motion.entity_id, name(camera), notify, slug, doorbell, kinds)
+      : removeAutomation(creds, alertId(camera.entity_id))
+    ).catch((e) => setError(e?.message ?? String(e)));
   };
+  const toggleKind = (k: SmartKind) =>
+    save(true, saved?.includes(k) ? saved.filter((x) => x !== k) : [...(saved ?? []), k]);
 
   return (
     <>
       <View style={styles.syncRow}>
         <ThemedText style={styles.flex}>{doorbell ? 'Doorbell alerts' : 'Motion alerts'}</ThemedText>
-        <Switch value={auto?.state === 'on'} onValueChange={toggle} />
+        <Switch value={on} onValueChange={(v) => save(v, smart ? (saved ?? ['unknown']) : undefined)} />
       </View>
+      {on && smart && (
+        <>
+          <ThemedText type="small" themeColor="textSecondary">Alert me for</ThemedText>
+          <View style={styles.chips}>
+            <Chip label="Every motion" selected={!saved} onPress={() => save(true)} />
+            {SMART_KINDS.map(([k, label]) => (
+              <Chip key={k} label={label} selected={!!saved?.includes(k)} onPress={() => toggleKind(k)} />
+            ))}
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            {saved
+              ? `Arrives 15–40 s after the motion, once Blink Vision has looked at the clip, saying who or what it saw.${doorbell ? ' A doorbell press still alerts at once.' : ''}`
+              : 'Arrives within seconds of the motion, with the camera’s last snapshot.'}
+          </ThemedText>
+        </>
+      )}
+      {on && events && !vision && (
+        <ThemedText type="small" themeColor="textSecondary">
+          To be alerted only for people you don’t know, set up face recognition: Cameras › People.
+        </ThemedText>
+      )}
       {error && <ThemedText type="small" style={styles.error}>{error}</ThemedText>}
     </>
   );

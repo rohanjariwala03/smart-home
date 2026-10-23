@@ -58,6 +58,14 @@
         {
           "initialOrientation": "PORTRAIT_UP"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick photos of people so the cameras can recognize them. The photos stay on your Home Assistant.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

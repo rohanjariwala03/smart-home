@@ -22,12 +22,14 @@ import { Spacing } from '@/constants/theme';
 import { useHA, type Creds } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 import { useRotation } from '@/orientation';
+import type { Detection } from '@/vision';
 
-// Motion clips from the Blink Live View Proxy: the Sync Module's USB storage and Blink's cloud.
-// Listing is metadata only. Opening a clip, or its thumbnail, makes the proxy fetch it from
+// Motion clips from Blink Instant Events: the Sync Module's USB storage and Blink's cloud.
+// Listing is metadata only. Opening a clip, or its thumbnail, makes Home Assistant fetch it from
 // Blink (one at a time, then cached), so only the newest few rows load a thumbnail up front.
+// With the Blink Vision add-on each clip also says who or what was in it, with that frame (stored locally).
 
-type Clip = {
+export type Clip = {
   id: string;
   source: 'local' | 'cloud';
   slug: string;
@@ -37,7 +39,23 @@ type Clip = {
   download_url: string;
   thumbnail_url?: string;
   cached?: boolean;
+  detection?: Detection | null;
 };
+
+/** Clips from the last `hours`, newest first. */
+export const fetchClips = (creds: Creds, source: string, hours: number, limit = 100, pages = 10) =>
+  fetch(`${creds.url}/api/blink_instant_events/clips?source=${source}&hours=${hours}&limit=${limit}&pages=${pages}`, {
+    headers: auth(creds),
+  }).then((r) => (r.ok ? (r.json() as Promise<{ clips: Clip[] }>) : Promise.reject(new Error(`Couldn't load clips (HTTP ${r.status}).`))));
+
+// What's in a clip, for the filter chips.
+const KINDS = [
+  ['person', 'People', (d: Detection) => d.labels.includes('person')],
+  ['unknown', 'Unknown', (d: Detection) => d.unknown_faces > 0 || (d.labels.includes('person') && !d.people.length)],
+  ['known', 'Known', (d: Detection) => d.people.length > 0],
+  ['vehicle', 'Vehicles', (d: Detection) => d.labels.includes('vehicle')],
+  ['animal', 'Animals', (d: Detection) => d.labels.includes('animal')],
+] as const;
 
 const DAYS = 30; // the most the proxy will list
 const SOURCES = [
@@ -55,23 +73,20 @@ export async function shareVideo(url: string, headers?: Record<string, string>) 
   await Share.share({ url: file.uri });
 }
 
-export function ClipsSheet({ camera, onClose }: { camera?: string; onClose: () => void }) {
+export function ClipsSheet({ camera, initial, onClose }: { camera?: string; initial?: Clip; onClose: () => void }) {
   const { creds } = useHA();
   const [clips, setClips] = useState<Clip[]>();
   const [error, setError] = useState<string>();
   const [filter, setFilter] = useState(camera);
-  const [open, setOpen] = useState<Clip>();
+  const [kind, setKind] = useState<(typeof KINDS)[number][0]>();
+  const [open, setOpen] = useState<Clip | undefined>(initial);
   const [source, setSource] = useState<(typeof SOURCES)[number][0]>('both');
 
   useEffect(() => {
     if (!creds) return;
     let cancelled = false;
-    fetch(`${creds.url}/api/blink_instant_events/clips?source=${source}&hours=${DAYS * 24}&limit=100&pages=10`, {
-      headers: auth(creds),
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Couldn't load clips (HTTP ${r.status}).`))))
-      .then(
-        (body: { clips: Clip[] }) => !cancelled && setClips(body.clips),
+    fetchClips(creds, source, DAYS * 24).then(
+        (body) => !cancelled && setClips(body.clips),
         (e: Error) => !cancelled && setError(e.message),
       );
     return () => {
@@ -80,7 +95,9 @@ export function ClipsSheet({ camera, onClose }: { camera?: string; onClose: () =
   }, [creds, source]);
 
   const cameras = [...new Map((clips ?? []).map((c) => [c.slug, c.camera_name])).entries()];
-  const shown = (clips ?? []).filter((c) => !filter || c.slug === filter);
+  const match = KINDS.find(([k]) => k === kind)?.[2];
+  const shown = (clips ?? []).filter((c) => (!filter || c.slug === filter) && (!match || (c.detection && match(c.detection))));
+  const smart = (clips ?? []).some((c) => c.detection);
   const sections = byDay(shown);
 
   return (
@@ -143,19 +160,29 @@ export function ClipsSheet({ camera, onClose }: { camera?: string; onClose: () =
                     ))}
                   </ScrollView>
                 )}
+                {smart && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                    <Chip label="Everything" selected={!kind} onPress={() => setKind(undefined)} />
+                    {KINDS.map(([k, label]) => (
+                      <Chip key={k} label={label} selected={kind === k} onPress={() => setKind(k)} />
+                    ))}
+                  </ScrollView>
+                )}
               </View>
             }
             ListFooterComponent={
               shown.length > 0 ? (
                 <ThemedText type="small" themeColor="textSecondary" style={styles.footer}>
-                  Showing the last {DAYS} days, the most the Blink proxy can list. Blink deletes cloud clips after 60
+                  Showing the last {DAYS} days, the most Blink lists. Blink deletes cloud clips after 60
                   days.
                 </ThemedText>
               ) : null
             }
             ListEmptyComponent={
               <ThemedText themeColor="textSecondary">
-                No clips in the last {DAYS} days. Clips need a Sync Module with USB storage, or a Blink subscription.
+                {kind
+                  ? 'No clips like that. Only clips recorded since Blink Vision started are labeled.'
+                  : `No clips in the last ${DAYS} days. Clips need a Sync Module with USB storage, or a Blink subscription.`}
               </ThemedText>
             }
             renderSectionHeader={({ section }) => (
@@ -167,7 +194,7 @@ export function ClipsSheet({ camera, onClose }: { camera?: string; onClose: () =
               <Row
                 clip={item}
                 creds={creds!}
-                thumbnail={!!item.cached || shown.indexOf(item) < EAGER_THUMBNAILS}
+                thumbnail={!!item.cached || !!item.detection || shown.indexOf(item) < EAGER_THUMBNAILS}
                 onPress={() => setOpen(item)}
               />
             )}
@@ -183,18 +210,19 @@ function Row({ clip, creds, thumbnail, onPress }: { clip: Clip; creds: Creds; th
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${clip.camera_name} clip at ${time(clip)}`}
+      accessibilityLabel={`${clip.camera_name} clip at ${time(clip)}${clip.detection ? `: ${clip.detection.summary}` : ''}`}
       onPress={onPress}
       style={({ pressed }) => [styles.row, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
       <View style={[styles.thumb, { backgroundColor: theme.backgroundSelected }]}>
-        {thumbnail && clip.thumbnail_url ? (
-          <Image source={{ uri: creds.url + clip.thumbnail_url, headers: auth(creds) }} style={styles.thumb} />
+        {thumbnail && (clip.detection?.image_url ?? clip.thumbnail_url) ? (
+          <Image source={{ uri: creds.url + (clip.detection?.image_url ?? clip.thumbnail_url), headers: auth(creds) }} style={styles.thumb} />
         ) : (
           <SymbolView name="play.rectangle.fill" size={24} tintColor={theme.textSecondary} />
         )}
       </View>
       <View style={styles.flex}>
         <ThemedText style={styles.bold}>{clip.camera_name}</ThemedText>
+        {clip.detection && <ThemedText type="small">{clip.detection.summary}</ThemedText>}
         <ThemedText type="small" themeColor="textSecondary">
           {time(clip)} · {clip.source === 'local' ? 'Sync Module' : 'Cloud'}
           {clip.size ? ` · ${(clip.size / 1e6).toFixed(1)} MB` : ''}
@@ -263,7 +291,7 @@ function ClipPlayer({ clip, creds }: { clip: Clip; creds: Creds }) {
   );
 }
 
-const time = (c: Clip) => new Date(c.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+export const time = (c: Clip) => new Date(c.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 function byDay(clips: Clip[]) {
   const today = new Date().toDateString();
