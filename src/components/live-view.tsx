@@ -26,11 +26,11 @@ import { lockLandscape, lockPortrait, useRotation } from '@/orientation';
 
 import MicStream from '../../modules/mic-stream';
 
-// Plays Blink Instant Events' HLS stream in iOS's own player (AVPlayer).
+// Plays the Blink Live View Proxy's HLS stream in iOS's own player (AVPlayer).
 // HA auth buys a 10-minute token scoped to one camera; the playlist and its
 // segments carry it. Fetching the playlist starts the camera; /stop frees it.
 // Push-to-talk and camera controls ride the same live-view session (the `session` id).
-// Home Assistant keeps a copy of every live view, which is what Record saves.
+// The proxy keeps a copy of every live view, which is what Record saves.
 // Controls fade out a few seconds into playback; tap the video to bring them back. Pinch to zoom (drag to look
 // around), double-tap to zoom back out or, unzoomed, to fill the screen.
 export function LiveView({ creds, slug, title, ptt = true, onClose }: {
@@ -377,7 +377,7 @@ export function useLiveStream(base: string, headers: Record<string, string>, att
     };
   }, [base, headers, attempt]);
 
-  // Free the camera as soon as we stop watching, instead of at the server's idle timeout.
+  // Free the camera as soon as we stop watching, instead of at the proxy's idle timeout.
   const token = stream?.token;
   useEffect(() => {
     if (!token) return;
@@ -394,13 +394,7 @@ export function useLiveStream(base: string, headers: Record<string, string>, att
         : null,
     [base, stream],
   );
-  // Live view should feel live: AVPlayer by default stays about three segments (3 s here) behind the newest video
-  // and buffers more before starting. Aim 1.5 s behind and start on the first segment; a weak link may stall more.
-  const player = useVideoPlayer(source, (p) => {
-    p.targetOffsetFromLive = 1.5;
-    p.bufferOptions = { preferredForwardBufferDuration: 1, waitsToMinimizeStalling: false };
-    p.play();
-  });
+  const player = useVideoPlayer(source, (p) => p.play());
   return { stream, setStream, player, error, setError };
 }
 
