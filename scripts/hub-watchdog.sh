@@ -18,7 +18,7 @@ if [ "$($U status $VM 2>/dev/null)" != started ]; then
   exit 0
 fi
 
-if [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://192.168.2.79/api/)" = 000 ]; then
+if [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://192.168.2.79/manifest.json)" = 000 ]; then
   n=$(($(cat "$DIR/fails" 2>/dev/null || echo 0) + 1)); echo $n > "$DIR/fails"
   last=$(cat "$DIR/restarted" 2>/dev/null || echo 0)
   # 3 misses in a row (~6 min, enough for a boot or Wi-Fi reconnect), and at most one restart per 20 minutes.
