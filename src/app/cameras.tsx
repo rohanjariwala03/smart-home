@@ -2,7 +2,7 @@ import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Linking, Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import {
   alertId,
@@ -30,6 +30,7 @@ import { LiveView } from '@/components/live-view';
 import { PeopleSheet } from '@/components/people-sheet';
 import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
 import { TodayStrip } from '@/components/today-strip';
 import { armStatus, Toggle } from '@/components/toggle';
 import { FavouriteButton } from '@/favourites';
@@ -53,8 +54,14 @@ export default function CamerasScreen() {
   const [grid, setGrid] = useState(false);
   const [detail, setDetail] = useState<string>();
   const notify = useNotifyServices();
-  // smarthome://cameras?live=<slug>, from a motion or doorbell alert.
-  const { live } = useLocalSearchParams<{ live?: string }>();
+  // smarthome://cameras?live=<slug>, from a motion or doorbell alert; ?camera=<slug>&seen=<picture>&what=<summary>
+  // from a smart alert: what Blink Vision saw.
+  const { live, camera: seenCamera, seen, what } = useLocalSearchParams<{
+    live?: string;
+    camera?: string;
+    seen?: string;
+    what?: string;
+  }>();
   // Live cameras are opened from their snapshot camera's card, not listed on their own. While a camera is offline
   // Home Assistant drops its attributes (proxy_slug too), so the entity id is checked as well.
   const cameras = byDomain(entities, 'camera').filter((e) => !e.attributes.proxy_slug && !e.entity_id.endsWith('_live_view'));
@@ -138,6 +145,22 @@ export default function CamerasScreen() {
           ptt={liveEntity(entities, live)?.attributes.ptt_supported !== false}
           onClose={() => router.setParams({ live: undefined })}
         />
+      )}
+      {seen && seenCamera && creds && (
+        <Modal visible animationType="fade" presentationStyle="pageSheet" onRequestClose={() => router.setParams({ seen: undefined })}>
+          <ThemedView style={styles.seen}>
+            <ThemedText type="subtitle">{what || 'What the camera saw'}</ThemedText>
+            <Image style={styles.seenImage} resizeMode="contain" source={{ uri: creds.url + seen }} />
+            <View style={styles.chips}>
+              <Chip
+                icon="video.fill"
+                label="Live view"
+                onPress={() => router.setParams({ seen: undefined, camera: undefined, live: seenCamera })}
+              />
+              <Chip icon="xmark" label="Close" onPress={() => router.setParams({ seen: undefined, camera: undefined })} />
+            </View>
+          </ThemedView>
+        </Modal>
       )}
       {detail && entities[detail] && <DeviceSheet entity={entities[detail]} onClose={() => setDetail(undefined)} />}
       {clips && <ClipsSheet camera={clips === true ? undefined : clips} onClose={() => setClips(undefined)} />}
@@ -291,6 +314,8 @@ function Camera({ entity, notify, vision, onClips }: {
 
 const styles = StyleSheet.create({
   image: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: '#0003' },
+  seen: { flex: 1, padding: 16, paddingTop: 24, gap: 16 },
+  seenImage: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: '#0003' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pressed: { opacity: 0.8 },

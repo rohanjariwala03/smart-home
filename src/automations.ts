@@ -149,15 +149,15 @@ const KINDS = `{% set a = trigger.to_state.attributes %}{% set k = [] %}\
 {% if not a.labels %}{% set k = k + ['other'] %}{% endif %}`;
 
 /**
- * Alert to the Home Assistant companion app, with a picture. With a proxy `slug`, tapping it (or its Live view
- * button) opens this app straight to live view. A doorbell's alert is time-sensitive, so it gets through Focus.
+ * Alert to the Home Assistant companion app, with a picture. With a proxy `slug`, its Live view button opens this
+ * app straight to live view, and so does tapping it, except a smart alert, which opens the analyzed picture. A doorbell's alert is time-sensitive, so it gets through Focus.
  * - Plain: on every motion, with the camera's snapshot.
  * - `smart`: once Blink Vision has read the clip (~15-40 s), only for the kinds in `alertFor`, saying who or what it
  *   was, with the analyzed frame. A doorbell press still alerts at once; its detection then updates that alert.
  */
 export function setAlert(creds: Creds, camera: string, motion: string, name: string, notify: string, slug?: string, doorbell = false, smart?: Smart) {
   const live = slug && `smarthome://cameras?live=${encodeURIComponent(slug)}`;
-  const notification = (message: string, image: string) => ({
+  const notification = (message: string, image: string, url = live) => ({
     action: notify,
     data: {
       title: name,
@@ -166,7 +166,7 @@ export function setAlert(creds: Creds, camera: string, motion: string, name: str
         image,
         group: 'motion',
         tag: alertId(camera),
-        ...(live && { url: live, actions: [{ action: 'URI', title: 'Live view', uri: live }] }),
+        ...(live && { url, actions: [{ action: 'URI', title: 'Live view', uri: live }] }),
         ...(doorbell && { push: { 'interruption-level': 'time-sensitive' } }),
       },
     },
@@ -197,6 +197,9 @@ export function setAlert(creds: Creds, camera: string, motion: string, name: str
       notification(
         `{{ "Someone’s at the door" if trigger.id == 'doorbell_press' else trigger.to_state.attributes.summary }}`,
         `{{ '/api/camera_proxy/${camera}' if trigger.id == 'doorbell_press' else trigger.to_state.attributes.image }}`,
+        // A press opens live view (they're at the door); a detection opens what Blink Vision saw.
+        live &&
+          `{{ '${live}' if trigger.id == 'doorbell_press' else 'smarthome://cameras?camera=${encodeURIComponent(slug)}&seen=' ~ (trigger.to_state.attributes.image | urlencode) ~ '&what=' ~ (trigger.to_state.attributes.summary | urlencode) }}`,
       ),
     ],
     mode: 'queued',
