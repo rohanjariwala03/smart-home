@@ -32,6 +32,8 @@ class SmartHomeNotify(BaseNotificationService):
         push = self.hass.data[DOMAIN]
         data = kwargs.get(ATTR_DATA) or {}
         targets = kwargs.get(ATTR_TARGET)
+        if push.is_snoozed(data.get("tag"), data.get("group")):
+            return
         body = payload(message, kwargs.get(ATTR_TITLE), data, image_url(self.hass, data.get("image")))
         for token, device in list(push.devices.items()):
             if targets and device["name"] not in targets:

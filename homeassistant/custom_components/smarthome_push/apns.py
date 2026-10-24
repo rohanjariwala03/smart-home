@@ -35,7 +35,7 @@ def payload(message: str, title: str | None, data: dict[str, Any] | None, image:
         aps["category"] = "camera"  # the app registers this category with its Live view button
     if image:
         aps["mutable-content"] = 1  # lets the app's notification extension attach the picture
-    extra = {"url": data.get("url"), "live": live, "image": image}
+    extra = {"url": data.get("url"), "live": live, "image": image, "tag": data.get("tag"), "group": group}
     # expo-notifications hands the app the "body" dictionary as the notification's data.
     return {"aps": aps, "body": {k: v for k, v in extra.items() if v}}
 

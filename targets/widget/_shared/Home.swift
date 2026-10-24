@@ -156,6 +156,21 @@ enum HA {
     _ = try await request("/api/config/automation/config/smarthome_timer_\(id.replacingOccurrences(of: ".", with: "_"))", body: config)
   }
 
+  /// The alarm panels (Blink systems) Home Assistant can reach right now.
+  static func alarms() async throws -> [HAState] {
+    try JSONDecoder().decode([HAState].self, from: await request("/api/states"))
+      .filter { $0.domain == "alarm_control_panel" && !$0.unavailable }
+  }
+
+  static func setArmed(_ armed: Bool) async throws -> [HAState] {
+    let alarms = try await alarms()
+    if !alarms.isEmpty {
+      _ = try await request(
+        "/api/services/alarm_control_panel/alarm_\(armed ? "arm_away" : "disarm")", body: ["entity_id": alarms.map(\.entity_id)])
+    }
+    return alarms
+  }
+
   /// Widgets and controls show the new state now rather than at their next refresh.
   static func refreshWidgets() {
     WidgetCenter.shared.reloadAllTimelines()
@@ -313,6 +328,53 @@ struct ShowCameraIntent: AppIntent {
   }
 }
 
+struct ArmCamerasIntent: AppIntent {
+  static let title: LocalizedStringResource = "Arm cameras"
+  static let description = IntentDescription("Arms the Blink cameras, so motion alerts again.")
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    .result(dialog: try await HA.setArmed(true).isEmpty ? "There are no cameras to arm." : "The cameras are armed.")
+  }
+}
+
+struct DisarmCamerasIntent: AppIntent {
+  static let title: LocalizedStringResource = "Disarm cameras"
+  static let description = IntentDescription("Disarms the Blink cameras. Asks for Face ID first.")
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    .result(dialog: try await HA.setArmed(false).isEmpty ? "There are no cameras to disarm." : "The cameras are disarmed.")
+  }
+}
+
+struct CamerasArmedIntent: AppIntent {
+  static let title: LocalizedStringResource = "Are the cameras armed?"
+  static let description = IntentDescription("Says whether the Blink cameras are armed.")
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let states = try await HA.alarms().map(\.state)
+    if states.isEmpty { return .result(dialog: "Home Assistant can't see the cameras right now.") }
+    let armed = states.allSatisfy { $0.hasPrefix("arm") }
+    return .result(dialog: armed ? "Yes, the cameras are armed." : "No, the cameras are disarmed.")
+  }
+}
+
+// Held back in Home Assistant (smarthome_push.snooze, group "motion"), so it holds with the phone off.
+struct SnoozeCameraAlertsIntent: AppIntent {
+  static let title: LocalizedStringResource = "Snooze camera alerts"
+  static let description = IntentDescription("Stops camera alerts from Smart Home for a while. Alexa still announces motion.")
+
+  @Parameter(title: "For", default: .h1) var length: TimerLength
+
+  static var parameterSummary: some ParameterSummary { Summary("Snooze camera alerts for \(\.$length)") }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    _ = try await HA.request("/api/services/smarthome_push/snooze", body: ["key": "motion", "minutes": length.rawValue])
+    let until = Date.now.addingTimeInterval(Double(length.rawValue * 60)).formatted(date: .omitted, time: .shortened)
+    return .result(dialog: "Camera alerts are snoozed until \(until).")
+  }
+}
+
 // MARK: - Siri
 
 // Every phrase has to name the app. For no app name ("Hey Siri, porch light off for an hour"),
@@ -352,6 +414,30 @@ struct SmartHomeShortcuts: AppShortcutsProvider {
       ],
       shortTitle: "Show camera",
       systemImageName: "video.fill"
+    )
+    AppShortcut(
+      intent: ArmCamerasIntent(),
+      phrases: ["Arm the cameras in \(.applicationName)", "Arm \(.applicationName)"],
+      shortTitle: "Arm cameras",
+      systemImageName: "shield.lefthalf.filled"
+    )
+    AppShortcut(
+      intent: DisarmCamerasIntent(),
+      phrases: ["Disarm the cameras in \(.applicationName)", "Disarm \(.applicationName)"],
+      shortTitle: "Disarm cameras",
+      systemImageName: "shield.slash"
+    )
+    AppShortcut(
+      intent: CamerasArmedIntent(),
+      phrases: ["Are the cameras armed in \(.applicationName)", "Is \(.applicationName) armed"],
+      shortTitle: "Armed?",
+      systemImageName: "questionmark.circle"
+    )
+    AppShortcut(
+      intent: SnoozeCameraAlertsIntent(),
+      phrases: ["Snooze camera alerts in \(.applicationName)", "Snooze \(.applicationName) alerts"],
+      shortTitle: "Snooze alerts",
+      systemImageName: "bell.slash"
     )
     AppShortcut(
       intent: PowerIntent(on: true),

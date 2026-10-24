@@ -23,5 +23,21 @@
     "abort": {
       "single_instance_allowed": "Already set up."
     }
+  },
+  "services": {
+    "snooze": {
+      "name": "Snooze alerts",
+      "description": "Hold back Smart Home app alerts for a while.",
+      "fields": {
+        "key": {
+          "name": "Alerts",
+          "description": "An alert's tag (one camera) or group: \"motion\" for every camera."
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "How long; 0 ends the snooze."
+        }
+      }
+    }
   }
 }

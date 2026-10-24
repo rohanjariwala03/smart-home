@@ -6,7 +6,8 @@ registered phone. No relay in between: Home Assistant talks to Apple with the te
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
 
 from aiohttp import web
@@ -15,8 +16,9 @@ import voluptuous as vol
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import discovery
+import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -24,6 +26,7 @@ from .apns import Apns
 from .const import CONF_BUNDLE_ID, CONF_KEY, CONF_KEY_ID, CONF_SANDBOX, CONF_TEAM_ID, DOMAIN
 
 TOKEN = vol.Match(r"^[0-9a-fA-F]{32,200}$")
+SNOOZED = "snoozed"  # kept in the devices store, next to the tokens
 
 
 @dataclass
@@ -33,20 +36,45 @@ class PushData:
     apns: Apns
     devices: dict[str, dict[str, Any]]  # token -> {name, registered_at}
     store: Store[dict[str, dict[str, Any]]]
+    snoozed: dict[str, str] = field(default_factory=dict)  # alert tag or group -> until (ISO time)
 
     def save(self) -> None:
-        """Persist the device list soon."""
-        self.store.async_delay_save(lambda: self.devices, 2)
+        """Persist the devices and snoozes soon."""
+        self.store.async_delay_save(lambda: {**self.devices, SNOOZED: self.snoozed}, 2)
+
+    def is_snoozed(self, *keys: str | None) -> bool:
+        """Whether alerts with this tag or group are held back right now."""
+        now = dt_util.utcnow().isoformat()
+        return any(key and self.snoozed.get(key, "") > now for key in keys)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Load the phones, take registrations, offer notify.smart_home_app."""
     store: Store[dict[str, dict[str, Any]]] = Store(hass, 1, f"{DOMAIN}.devices")
     data = entry.data
-    hass.data[DOMAIN] = PushData(
+    saved = await store.async_load() or {}
+    snoozed = saved.pop(SNOOZED, {})
+    push = hass.data[DOMAIN] = PushData(
         Apns(hass, data[CONF_TEAM_ID], data[CONF_KEY_ID], data[CONF_KEY], data[CONF_BUNDLE_ID], data[CONF_SANDBOX]),
-        await store.async_load() or {},
+        saved,
         store,
+        snoozed,
+    )
+
+    async def snooze(call: ServiceCall) -> None:
+        """Hold back alerts with this tag (one camera) or group ("motion": every camera) for a while; 0 ends it."""
+        key, minutes = call.data["key"], call.data["minutes"]
+        if minutes:
+            push.snoozed[key] = (dt_util.utcnow() + timedelta(minutes=minutes)).isoformat()
+        else:
+            push.snoozed.pop(key, None)
+        push.save()
+
+    hass.services.async_register(
+        DOMAIN,
+        "snooze",
+        snooze,
+        vol.Schema({vol.Required("key"): cv.string, vol.Required("minutes"): vol.All(int, vol.Range(0, 24 * 60))}),
     )
     hass.http.register_view(DevicesView())
     # A legacy notify platform: it takes `data` (picture, url, actions), like the companion app's.

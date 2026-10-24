@@ -2,13 +2,17 @@ import * as Device from 'expo-device';
 import { fetch } from 'expo/fetch';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { Alert } from 'react-native';
 
-import { useHA } from '@/ha';
+import { byDomain, unavailable, useHA } from '@/ha';
 
 // Alerts sent by Home Assistant straight to Apple (homeassistant/custom_components/smarthome_push), as
-// notify.smart_home_app. The app hands Home Assistant its APNs token; tapping an alert opens its `url`, its
-// Live view button the camera's live view.
+// notify.smart_home_app. The app hands Home Assistant its APNs token; tapping an alert opens its `url`. Camera
+// alerts carry buttons: Live view, Snooze 1 hour (that camera, held back in Home Assistant), Disarm cameras.
+// Each opens the app for a moment: on iOS, Expo runs no app code for a button tapped in the background.
+
+const SNOOZE_MINUTES = 60;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -18,12 +22,18 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
-// The button on camera alerts (the category Home Assistant sets when there's a live view to open).
+// The buttons of the category Home Assistant sets on alerts with a live view to open.
 Notifications.setNotificationCategoryAsync('camera', [
   { identifier: 'live', buttonTitle: 'Live view', options: { opensAppToForeground: true } },
+  { identifier: 'snooze', buttonTitle: 'Snooze 1 hour', options: { opensAppToForeground: true } },
+  {
+    identifier: 'disarm',
+    buttonTitle: 'Disarm cameras',
+    options: { opensAppToForeground: true, isAuthenticationRequired: true, isDestructive: true },
+  },
 ]).catch(() => {});
 
-type Extra = { url?: string; live?: string };
+type Extra = { url?: string; live?: string; tag?: string; group?: string };
 
 const extra = (response: Notifications.NotificationResponse): Extra => {
   const { content, trigger } = response.notification.request;
@@ -32,16 +42,15 @@ const extra = (response: Notifications.NotificationResponse): Extra => {
   return { ...raw, ...(content.data as Extra) };
 };
 
-const open = (response: Notifications.NotificationResponse) => {
-  const { url, live } = extra(response);
-  const target = response.actionIdentifier === 'live' ? live : url;
+const go = (target?: string) => {
   if (target?.startsWith('smarthome://')) router.push(target.replace('smarthome://', '/') as never);
 };
 
-/** Registers this phone with Home Assistant and opens what a tapped alert points at. */
+/** Registers this phone with Home Assistant and acts on a tapped alert or its buttons. */
 export function Push() {
-  const { creds } = useHA();
+  const { creds, call, entities, status } = useHA();
   const last = Notifications.useLastNotificationResponse();
+  const handled = useRef<string>(undefined);
 
   useEffect(() => {
     if (!creds || !Device.isDevice) return;
@@ -59,8 +68,27 @@ export function Push() {
   }, [creds]);
 
   useEffect(() => {
-    if (last) open(last); // also covers the tap that launched the app
-  }, [last]);
+    // Also covers the tap that launched the app. Buttons wait for the connection; each response runs once.
+    if (!last || status !== 'ready') return;
+    const id = `${last.notification.request.identifier}:${last.actionIdentifier}`;
+    if (handled.current === id) return;
+    handled.current = id;
+    const { url, live, tag } = extra(last);
+    const title = last.notification.request.content.title ?? 'Camera';
+    const done = (ok: boolean, text: string) => ok && Alert.alert(text); // `call` reports failures itself
+    if (last.actionIdentifier === 'live') go(live);
+    else if (last.actionIdentifier === 'snooze' && tag) {
+      const until = new Date(Date.now() + SNOOZE_MINUTES * 60_000).toLocaleTimeString([], { timeStyle: 'short' });
+      call('smarthome_push', 'snooze', { key: tag, minutes: SNOOZE_MINUTES }).then((ok) =>
+        done(ok, `${title} alerts snoozed until ${until}.`),
+      );
+    } else if (last.actionIdentifier === 'disarm') {
+      const alarms = byDomain(entities, 'alarm_control_panel').filter((e) => !unavailable(e));
+      call('alarm_control_panel', 'alarm_disarm', { entity_id: alarms.map((e) => e.entity_id) }).then((ok) =>
+        done(ok, 'Cameras disarmed.'),
+      );
+    } else go(url);
+  }, [last, status, call, entities]);
 
   return null;
 }

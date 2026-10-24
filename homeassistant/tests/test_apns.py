@@ -47,3 +47,19 @@ def test_key_check() -> None:
     assert jwt.get_unverified_header(token)["kid"] == "K"
     with pytest.raises(Exception):  # noqa: B017
         check_key("not a key")
+
+
+def test_snooze() -> None:
+    """A tag or a group held back until its time; other alerts and expired snoozes go through."""
+    from datetime import timedelta  # noqa: PLC0415
+
+    from smarthome_push import PushData  # noqa: PLC0415
+
+    from homeassistant.util import dt as dt_util  # noqa: PLC0415
+
+    push = PushData(apns=None, devices={}, store=None)
+    soon, past = dt_util.utcnow() + timedelta(minutes=5), dt_util.utcnow() - timedelta(minutes=5)
+    push.snoozed = {"motion": soon.isoformat(), "old_tag": past.isoformat()}
+    assert push.is_snoozed("cam_tag", "motion")
+    assert not push.is_snoozed("old_tag", "health")
+    assert not push.is_snoozed(None, None)
