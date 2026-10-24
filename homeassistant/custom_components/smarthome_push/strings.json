@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Home app push",
+        "description": "Home Assistant sends alerts straight to Apple for the Smart Home app. Use the push key (.p8) from the Apple developer account the app is signed with: Certificates, Identifiers & Profiles › Keys.",
+        "data": {
+          "team_id": "Team ID",
+          "key_id": "Key ID",
+          "key": "Key (.p8 file contents)",
+          "bundle_id": "App bundle ID",
+          "sandbox": "Development build"
+        },
+        "data_description": {
+          "key": "Open the .p8 file in a text editor and paste everything, including the BEGIN and END lines.",
+          "sandbox": "On for apps installed from Xcode (development signing), off for TestFlight or App Store builds."
+        }
+      }
+    },
+    "error": {
+      "bad_key": "That isn't a push key. Paste the whole .p8 file, including the BEGIN and END lines."
+    },
+    "abort": {
+      "single_instance_allowed": "Already set up."
+    }
+  }
+}

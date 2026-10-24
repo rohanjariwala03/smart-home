@@ -1,0 +1,13 @@
+{
+  "domain": "smarthome_push",
+  "name": "Smart Home app push",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["http"],
+  "documentation": "https://github.com/rohanjariwala03/smart-home",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "requirements": ["h2>=4.1.0"],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

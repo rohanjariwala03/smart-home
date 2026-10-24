@@ -5,6 +5,7 @@ import { useColorScheme } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import { HAProvider } from '@/ha';
+import { Push } from '@/push';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -15,6 +16,7 @@ export default function TabLayout() {
       <AnimatedSplashOverlay />
       <HAProvider>
         <AppTabs />
+        <Push />
       </HAProvider>
     </ThemeProvider>
   );
