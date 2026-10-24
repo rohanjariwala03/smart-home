@@ -520,7 +520,14 @@ export function useNotifyServices() {
   useEffect(() => {
     if (!conn) return;
     getServices(conn).then(
-      (all) => setFound(Object.keys(all.notify ?? {}).filter((s) => s.startsWith('mobile_app_')).map((s) => `notify.${s}`)),
+      // This app's own alerts (homeassistant/custom_components/smarthome_push) first, then the companion app's.
+      (all) =>
+        setFound(
+          Object.keys(all.notify ?? {})
+            .filter((s) => s === 'smart_home_app' || s.startsWith('mobile_app_'))
+            .sort((a, b) => Number(b === 'smart_home_app') - Number(a === 'smart_home_app'))
+            .map((s) => `notify.${s}`),
+        ),
       () => {},
     );
   }, [conn]);
