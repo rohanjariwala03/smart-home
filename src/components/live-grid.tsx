@@ -35,6 +35,7 @@ export function LiveGrid({ creds, cameras, onClose }: { creds: Creds; cameras: G
     <Modal
       animationType="fade"
       presentationStyle="fullScreen"
+      backdropColor="#000" // the default white flashes while it fades out
       supportedOrientations={['portrait', 'landscape']}
       onRequestClose={onClose}>
       <View style={[styles.root, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>

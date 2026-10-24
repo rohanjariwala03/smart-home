@@ -245,6 +245,7 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
     <Modal
       animationType="fade"
       presentationStyle="fullScreen"
+      backdropColor="#000" // the default white flashes while it fades out
       supportedOrientations={['portrait', 'landscape']}
       onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.root}>
