@@ -9,9 +9,11 @@ import { DeviceSheet } from '@/components/device-sheet';
 import { FavouritesSheet } from '@/components/favourites-sheet';
 import { Card, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
+import { Wall } from '@/components/wall';
 import { Spacing } from '@/constants/theme';
 import { useFavourites } from '@/favourites';
 import { name, useHA } from '@/ha';
+import { isPad } from '@/orientation';
 import { runScene } from '@/scenes';
 
 function greeting() {
@@ -19,8 +21,13 @@ function greeting() {
   return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 }
 
+// The iPad gets a wall dashboard; the phone, its favourites list.
+export default function Home() {
+  return isPad ? <Wall /> : <HomeScreen />;
+}
+
 // Only what you've starred: cameras, scenes and devices. Everything else is on the Devices and Cameras tabs.
-export default function HomeScreen() {
+function HomeScreen() {
   const { conn, entities, devices: registry } = useHA();
   const { favourites } = useFavourites();
   const [detail, setDetail] = useState<string>();
