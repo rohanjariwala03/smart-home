@@ -76,7 +76,7 @@ export function useDevice(entity: HassEntity) {
     );
   };
   const icon: SFSymbol = echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power');
-  return { off, isOn, state: state + timer, rgb: [r, g, b], icon, toggle };
+  return { off, isOn, state, timer, rgb: [r, g, b], icon, toggle };
 }
 
 /**
@@ -85,7 +85,7 @@ export function useDevice(entity: HassEntity) {
  */
 export function Tile({ entity, width, onSettings }: { entity: HassEntity; width: number; onSettings: () => void }) {
   const theme = useTheme();
-  const { off, isOn, state, rgb: [r, g, b], icon, toggle: flip } = useDevice(entity);
+  const { off, isOn, state, timer, rgb: [r, g, b], icon, toggle: flip } = useDevice(entity);
 
   const progress = useSharedValue(isOn ? 1 : 0);
   const pop = useSharedValue(1);
@@ -139,6 +139,7 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.state}>
           {state}
+          {timer}
         </ThemedText>
       </View>
     </Pressable>

@@ -9,11 +9,10 @@ import { DeviceSheet } from '@/components/device-sheet';
 import { FavouritesSheet } from '@/components/favourites-sheet';
 import { Card, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
-import { Wall } from '@/components/wall';
+import { useWallDashboard, Wall } from '@/components/wall';
 import { Spacing } from '@/constants/theme';
 import { useFavourites } from '@/favourites';
 import { name, useHA } from '@/ha';
-import { isPad } from '@/orientation';
 import { runScene } from '@/scenes';
 
 function greeting() {
@@ -21,9 +20,10 @@ function greeting() {
   return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 }
 
-// The iPad gets a wall dashboard; the phone, its favourites list.
+// An iPad gets the wall dashboard (unless it's turned off in Settings); the phone always gets its favourites list.
 export default function Home() {
-  return isPad ? <Wall /> : <HomeScreen />;
+  const [wall] = useWallDashboard();
+  return wall ? <Wall /> : <HomeScreen />;
 }
 
 // Only what you've starred: cameras, scenes and devices. Everything else is on the Devices and Cameras tabs.

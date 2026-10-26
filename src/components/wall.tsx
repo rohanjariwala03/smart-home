@@ -1,11 +1,12 @@
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
+import * as SecureStore from 'expo-secure-store';
 import { useIsFocused } from 'expo-router';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import type { Connection, HassEntity } from 'home-assistant-js-websocket';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -24,8 +25,11 @@ import { allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile
 import { DeviceSheet } from '@/components/device-sheet';
 import { LiveTile } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
+import { Card } from '@/components/screen';
+import { ThemedText } from '@/components/themed-text';
 import { useFavourites } from '@/favourites';
 import { byDomain, name, useHA } from '@/ha';
+import { isPad } from '@/orientation';
 import { runScene } from '@/scenes';
 
 const GAP = 14;
@@ -51,6 +55,46 @@ const SKY: Record<string, [string, SFSymbol]> = {
   windy: ['Windy', 'wind'],
   'windy-variant': ['Windy', 'wind'],
 };
+
+// The wall dashboard is for the iPad: there it replaces Home unless turned off in Settings. The phone never shows it.
+const WALL_KEY = 'wall-dashboard';
+let wallOn = isPad;
+const wallListeners = new Set<(on: boolean) => void>();
+const wallLoaded = isPad ? SecureStore.getItemAsync(WALL_KEY).then((v) => (wallOn = v !== 'off')) : Promise.resolve(false);
+
+/** Whether Home shows the wall dashboard (iPad only), and a setter for the Settings switch. */
+export function useWallDashboard() {
+  const [on, setOn] = useState(wallOn);
+  useEffect(() => {
+    wallListeners.add(setOn);
+    wallLoaded.then(setOn);
+    return () => void wallListeners.delete(setOn);
+  }, []);
+  const set = (next: boolean) => {
+    wallOn = next;
+    wallListeners.forEach((l) => l(next));
+    SecureStore.setItemAsync(WALL_KEY, next ? 'on' : 'off');
+  };
+  return [isPad && on, set] as const;
+}
+
+/** The Settings switch for it, shown only on an iPad. */
+export function WallSetting() {
+  const [on, set] = useWallDashboard();
+  if (!isPad) return null;
+  return (
+    <Card>
+      <View style={styles.between}>
+        <ThemedText type="smallBold">Wall dashboard</ThemedText>
+        <Switch value={on} onValueChange={set} accessibilityLabel="Wall dashboard" />
+      </View>
+      <ThemedText type="small" themeColor="textSecondary">
+        For an iPad on the wall: Home shows glass tiles, a clock, the weather and cameras, keeps the screen on and fades
+        to a clock when nobody touches it. Off, Home is the same list as on your iPhone.
+      </ThemedText>
+    </Card>
+  );
+}
 
 const time = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -399,18 +443,18 @@ function SceneTile({ scene, size }: { scene: HassEntity; size: number }) {
 }
 
 function DeviceTile({ entity, size, onLongPress }: { entity: HassEntity; size: number; onLongPress: () => void }) {
-  const { off, isOn, state, rgb: [r, g, b], icon, toggle } = useDevice(entity);
+  const { off, isOn, state, timer, rgb: [r, g, b], icon, toggle } = useDevice(entity);
   return (
     <Glass
       width={size}
       on={isOn}
-      label={`${name(entity)}, ${state}`}
+      label={`${name(entity)}, ${state}${timer}`}
       hint="Hold for timers, schedules and settings"
       onPress={off ? undefined : toggle}
       onLongPress={onLongPress}
       center>
       <DeviceIcon entity={entity} isOn={isOn} icon={icon} rgb={[r, g, b]} size={size * 0.2} dim={off} />
-      <Label title={name(entity)} sub={state} dark={isOn} />
+      <Label title={name(entity)} sub={state + timer} dark={isOn} />
     </Glass>
   );
 }

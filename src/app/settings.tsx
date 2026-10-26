@@ -7,6 +7,7 @@ import { Chip } from '@/components/chip';
 import { YourDevices } from '@/components/remove-devices';
 import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
+import { WallSetting } from '@/components/wall';
 import { Spacing } from '@/constants/theme';
 import { listGovee, useGoveeKey } from '@/govee';
 import { useHA } from '@/ha';
@@ -40,6 +41,8 @@ export default function SettingsScreen() {
       {sheet && <AddDeviceSheet start={sheet} onClose={() => setSheet(undefined)} />}
 
       <AnnounceSettings />
+
+      <WallSetting />
 
       <Card>
         <ThemedText type="smallBold">Home Assistant</ThemedText>
