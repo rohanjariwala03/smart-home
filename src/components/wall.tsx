@@ -6,11 +6,22 @@ import { SymbolView, type SFSymbol } from 'expo-symbols';
 import type { Connection, HassEntity } from 'home-assistant-js-websocket';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
-import { LiveGrid } from '@/components/live-grid';
+import { LiveTile } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
 import { useFavourites } from '@/favourites';
 import { byDomain, name, useHA } from '@/ha';
@@ -19,6 +30,7 @@ import { runScene } from '@/scenes';
 const GAP = 14;
 const PAD = 24;
 const IDLE_MS = 3 * 60_000;
+const LIVE_MS = 2 * 60_000; // the camera page plays live this long, then shows snapshots (Blink cameras run on batteries)
 const GLASS = isLiquidGlassAvailable();
 
 // Home Assistant's weather conditions.
@@ -43,8 +55,8 @@ const time = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2
 
 /**
  * The iPad's Home, made to hang on a wall: time and weather, a clock, cameras, scenes and devices as glass tiles (your
- * favourites, or everything until you pick some). Tap a device to switch it, hold it for its settings. Swipe left for
- * every camera. A doorbell press opens that camera live. The screen stays on while this is showing; after 3 minutes
+ * favourites, or everything until you pick some). Tap a device to switch it, hold it for its settings. Swipe left and
+ * every camera plays live. A doorbell press opens that camera live. The screen stays on while this is showing; after 3 minutes
  * untouched it fades to a big clock, and a tap brings the dashboard back.
  */
 export function Wall() {
@@ -54,12 +66,11 @@ export function Wall() {
   const focused = useIsFocused();
   const [detail, setDetail] = useState<string>();
   const [watch, setWatch] = useState<HassEntity>();
-  const [grid, setGrid] = useState(false);
+  const [page, setPage] = useState(0);
   const [idle, poke] = useIdle(IDLE_MS);
 
   useDoorbell((camera) => {
     poke();
-    setGrid(false);
     setWatch(camera);
   });
 
@@ -94,8 +105,13 @@ export function Wall() {
     <View style={styles.wall} onStartShouldSetResponderCapture={() => (poke(), false)}>
       {creds && backdrop && <Image source={{ uri: creds.url + backdrop }} blurRadius={60} style={StyleSheet.absoluteFill} />}
       <View style={styles.dim} />
+      <Streaks width={width} height={height} />
       <SafeAreaView style={styles.flex} edges={['top']}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / width))}>
           <ScrollView style={{ width }} contentContainerStyle={[styles.page, { width: span(cols) + PAD * 2 }]}>
             {status !== 'ready' && <Text style={styles.banner}>{status === 'connecting' ? 'Connecting…' : 'Hub offline · reconnecting'}</Text>}
             <View style={styles.row}>
@@ -104,13 +120,13 @@ export function Wall() {
             </View>
             <View style={styles.flow}>{tiles.slice(beside)}</View>
           </ScrollView>
-          <CameraPage cameras={allCameras} width={width} onWatch={setWatch} onGrid={() => setGrid(true)} />
+          <CameraPage cameras={allCameras} width={width} live={page === 1 && focused && !idle && !watch && !detail} onWatch={setWatch} />
         </ScrollView>
       </SafeAreaView>
 
       {focused && <KeepAwake />}
       <Modal
-        visible={idle && focused && !watch && !grid && !detail}
+        visible={idle && focused && !watch && !detail}
         animationType="fade"
         backdropColor="#000"
         supportedOrientations={['portrait', 'landscape']}
@@ -127,13 +143,6 @@ export function Wall() {
           onClose={close(() => setWatch(undefined))}
         />
       )}
-      {creds && grid && (
-        <LiveGrid
-          creds={creds}
-          cameras={allCameras.map((e) => ({ slug: e.attributes.snapshot_of, name: name(e) }))}
-          onClose={close(() => setGrid(false))}
-        />
-      )}
       {detail && entities[detail] && <DeviceSheet entity={entities[detail]} onClose={close(() => setDetail(undefined))} />}
     </View>
   );
@@ -142,6 +151,29 @@ export function Wall() {
 function KeepAwake() {
   useKeepAwake();
   return null;
+}
+
+/** Faint diagonal light across the background, for the glass to catch. */
+function Streaks({ width, height }: { width: number; height: number }) {
+  const long = Math.hypot(width, height);
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {[0.18, 0.42, 0.47, 0.76].map((at, i) => (
+        <View
+          key={at}
+          style={{
+            position: 'absolute',
+            left: width * at - long / 2,
+            top: height / 2,
+            width: long,
+            height: i === 2 ? 14 : 1.5,
+            backgroundColor: `rgba(255,255,255,${i === 2 ? 0.04 : 0.09})`,
+            transform: [{ rotate: '-55deg' }],
+          }}
+        />
+      ))}
+    </View>
+  );
 }
 
 const liveCamera = (entities: Record<string, HassEntity>, camera: HassEntity) =>
@@ -248,11 +280,11 @@ function Glass({ width, height = width, on, center, label, hint, onPress, onLong
 function Label({ title, sub, dark }: { title: string; sub?: string; dark?: boolean }) {
   return (
     <View>
-      <Text style={[styles.title, dark && styles.ink]} numberOfLines={2}>
+      <Text style={[styles.title, styles.centered, dark && styles.ink]} numberOfLines={2}>
         {title}
       </Text>
       {sub && (
-        <Text style={[styles.sub, dark && styles.inkSub]} numberOfLines={1}>
+        <Text style={[styles.sub, styles.centered, dark && styles.inkSub]} numberOfLines={1}>
           {sub}
         </Text>
       )}
@@ -358,8 +390,8 @@ function SceneTile({ scene, size }: { scene: HassEntity; size: number }) {
       .finally(() => setRunning(false));
   };
   return (
-    <Glass width={size} on={running} label={`${name(scene)} scene`} onPress={run}>
-      <SymbolView name={ICONS[domainOf(scene)]} size={size * 0.18} tintColor={running ? '#1c1c1e' : '#fff'} />
+    <Glass width={size} on={running} center label={`${name(scene)} scene`} onPress={run}>
+      <SymbolView name={ICONS[domainOf(scene)]} size={size * 0.2} tintColor={running ? '#1c1c1e' : '#fff'} />
       <Label title={name(scene)} sub="Scene" dark={running} />
     </Glass>
   );
@@ -374,10 +406,84 @@ function DeviceTile({ entity, size, onLongPress }: { entity: HassEntity; size: n
       label={`${name(entity)}, ${state}`}
       hint="Hold for timers, schedules and settings"
       onPress={off ? undefined : toggle}
-      onLongPress={onLongPress}>
-      <SymbolView name={icon} size={size * 0.18} tintColor={isOn ? `rgb(${r},${g},${b})` : off ? '#ffffff55' : '#fff'} />
+      onLongPress={onLongPress}
+      center>
+      <DeviceIcon entity={entity} isOn={isOn} icon={icon} rgb={[r, g, b]} size={size * 0.2} dim={off} />
       <Label title={name(entity)} sub={state} dark={isOn} />
     </Glass>
+  );
+}
+
+/**
+ * A device's icon, moving the way the device does: a fan spins (faster at a higher speed), a vacuum wiggles while it
+ * cleans, a TV or speaker pulses while it plays, and a light glows in its own colour. Switching gives it a little pop.
+ * Still with Reduce Motion on.
+ */
+function DeviceIcon({ entity, isOn, icon, rgb: [r, g, b], size, dim }: {
+  entity: HassEntity;
+  isOn: boolean;
+  icon: SFSymbol;
+  rgb: number[];
+  size: number;
+  dim: boolean;
+}) {
+  const still = useReducedMotion();
+  const domain = domainOf(entity);
+  const motion =
+    !isOn || still ? undefined
+    : domain === 'fan' ? 'spin'
+    : domain === 'vacuum' ? 'wiggle'
+    : domain === 'media_player' && entity.state === 'playing' ? 'pulse'
+    : undefined;
+  const percent: number = entity.attributes.percentage ?? 100;
+  const loop = useSharedValue(0);
+  const pop = useSharedValue(1);
+  const glow = useSharedValue(isOn ? 1 : 0);
+  const was = useRef(isOn);
+
+  useEffect(() => {
+    loop.set(0);
+    if (motion === 'spin') loop.set(withRepeat(withTiming(1, { duration: 2400 - percent * 18, easing: Easing.linear }), -1));
+    else if (motion) loop.set(withRepeat(withTiming(1, { duration: motion === 'pulse' ? 900 : 300, easing: Easing.inOut(Easing.quad) }), -1, true));
+    return () => cancelAnimation(loop);
+  }, [motion, percent, loop]);
+
+  useEffect(() => {
+    glow.set(withTiming(isOn ? 1 : 0, { duration: 400 }));
+    if (was.current !== isOn && !still) pop.set(withSequence(withTiming(1.25, { duration: 120 }), withSpring(1)));
+    was.current = isOn;
+  }, [isOn, still, glow, pop]);
+
+  const moving = useAnimatedStyle(() => ({
+    transform: [
+      { scale: pop.value * (motion === 'pulse' ? 1 + loop.value * 0.14 : 1) },
+      { rotate: motion === 'spin' ? `${loop.value * 360}deg` : motion === 'wiggle' ? `${(loop.value - 0.5) * 18}deg` : '0deg' },
+    ],
+  }));
+  const halo = useAnimatedStyle(() => ({ opacity: glow.value }));
+  const brightness = (entity.attributes.brightness ?? 255) / 255;
+  return (
+    <View style={{ width: size * 1.4, height: size * 1.4, alignItems: 'center', justifyContent: 'center' }}>
+      {domain === 'light' && (
+        <Animated.View
+          style={[
+            styles.halo,
+            {
+              width: size * 1.6,
+              height: size * 1.6,
+              borderRadius: size,
+              backgroundColor: `rgba(${r},${g},${b},${0.15 + brightness * 0.25})`,
+              shadowColor: `rgb(${r},${g},${b})`,
+              shadowRadius: size * 0.6,
+            },
+            halo,
+          ]}
+        />
+      )}
+      <Animated.View style={moving}>
+        <SymbolView name={icon} size={size} tintColor={isOn ? `rgb(${r},${g},${b})` : dim ? '#ffffff55' : '#fff'} />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -403,31 +509,72 @@ function CameraTile({ camera, width, height, onPress }: { camera: HassEntity; wi
   );
 }
 
-function CameraPage({ cameras, width, onWatch, onGrid }: {
+/** Every camera, live while `live` (the page is showing and nothing covers it); tap one to watch it full screen. */
+function CameraPage({ cameras, width, live, onWatch }: {
   cameras: HassEntity[];
   width: number;
+  live: boolean;
   onWatch: (camera: HassEntity) => void;
-  onGrid: () => void;
 }) {
   const cols = width > 900 ? 3 : 2;
   const w = Math.floor((width - PAD * 2 - GAP * (cols - 1)) / cols);
   return (
     <ScrollView style={{ width }} contentContainerStyle={styles.page}>
-      <View style={styles.between}>
-        <Text style={styles.heading}>Cameras</Text>
-        {cameras.length > 1 && (
-          <Pressable accessibilityRole="button" onPress={onGrid} style={({ pressed }) => [styles.pill, pressed && styles.pressed]}>
-            <SymbolView name="square.grid.2x2.fill" size={16} tintColor="#fff" />
-            <Text style={styles.title}>All live</Text>
-          </Pressable>
-        )}
-      </View>
-      <View style={styles.flow}>
-        {cameras.map((c) => (
-          <CameraTile key={c.entity_id} camera={c} width={w} height={Math.round((w * 9) / 16)} onPress={() => onWatch(c)} />
-        ))}
-      </View>
+      <Text style={styles.heading}>Cameras</Text>
+      {live ? (
+        <LiveCameras cameras={cameras} w={w} onWatch={onWatch} />
+      ) : (
+        <Snapshots cameras={cameras} w={w} onWatch={onWatch} />
+      )}
     </ScrollView>
+  );
+}
+
+type CameraList = { cameras: HassEntity[]; w: number; onWatch: (camera: HassEntity) => void };
+
+function Snapshots({ cameras, w, onWatch }: CameraList) {
+  return (
+    <View style={styles.flow}>
+      {cameras.map((c) => (
+        <CameraTile key={c.entity_id} camera={c} width={w} height={Math.round((w * 9) / 16)} onPress={() => onWatch(c)} />
+      ))}
+    </View>
+  );
+}
+
+/** All cameras at once, each its own live view; after LIVE_MS back to snapshots until asked again. */
+function LiveCameras({ cameras, w, onWatch }: CameraList) {
+  const { creds } = useHA();
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    if (expired) return;
+    const t = setTimeout(() => setExpired(true), LIVE_MS);
+    return () => clearTimeout(t);
+  }, [expired]);
+  if (expired || !creds)
+    return (
+      <>
+        <Snapshots cameras={cameras} w={w} onWatch={onWatch} />
+        <Pressable accessibilityRole="button" onPress={() => setExpired(false)} style={({ pressed }) => [styles.pill, pressed && styles.pressed]}>
+          <SymbolView name="play.fill" size={16} tintColor="#fff" />
+          <Text style={styles.title}>Watch live again</Text>
+        </Pressable>
+      </>
+    );
+  return (
+    <View style={styles.flow}>
+      {cameras.map((c) => (
+        <LiveTile
+          key={c.entity_id}
+          creds={creds}
+          camera={{ slug: c.attributes.snapshot_of, name: name(c) }}
+          width={w}
+          hidden={false}
+          focused={false}
+          onPress={() => onWatch(c)}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -440,9 +587,10 @@ const styles = StyleSheet.create({
   flow: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, alignContent: 'flex-start' },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   glass: { flex: 1, borderRadius: 28, padding: 18, overflow: 'hidden', justifyContent: 'space-between' },
-  center: { alignItems: 'center', justifyContent: 'center', padding: 0 },
-  title: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  sub: { color: 'rgba(255,255,255,0.65)', fontSize: 14, marginTop: 2 },
+  center: { alignItems: 'center', justifyContent: 'center', gap: 10 },
+  title: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  sub: { color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 2 },
+  centered: { textAlign: 'center' },
   ink: { color: '#1c1c1e' },
   inkSub: { color: 'rgba(28,28,30,0.6)' },
   small: { color: 'rgba(255,255,255,0.8)', fontSize: 15, fontWeight: '600' },
@@ -450,7 +598,8 @@ const styles = StyleSheet.create({
   sky: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   heading: { color: '#fff', fontSize: 28, fontWeight: '700' },
   banner: { color: '#FF9F0A', fontSize: 15, fontWeight: '600' },
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.14)' },
+  pill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.14)' },
+  halo: { position: 'absolute', shadowOpacity: 1, shadowOffset: { width: 0, height: 0 } },
   camera: { borderRadius: 28, overflow: 'hidden', backgroundColor: '#1c1c1e' },
   cameraLabel: {
     position: 'absolute',
