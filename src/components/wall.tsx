@@ -19,6 +19,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { removeAutomation, setHourlySnapshots, SNAPSHOTS_ID, useAutomation } from '@/automations';
 import { allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { LiveTile } from '@/components/live-grid';
@@ -30,7 +31,7 @@ import { runScene } from '@/scenes';
 const GAP = 14;
 const PAD = 24;
 const IDLE_MS = 3 * 60_000;
-const LIVE_MS = 2 * 60_000; // the camera page plays live this long, then shows snapshots (Blink cameras run on batteries)
+const LIVE_MS = 2 * 60_000; // Live on the camera page stops after this (Blink cameras run on batteries)
 const GLASS = isLiquidGlassAvailable();
 
 // Home Assistant's weather conditions.
@@ -55,8 +56,8 @@ const time = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2
 
 /**
  * The iPad's Home, made to hang on a wall: time and weather, a clock, cameras, scenes and devices as glass tiles (your
- * favourites, or everything until you pick some). Tap a device to switch it, hold it for its settings. Swipe left and
- * every camera plays live. A doorbell press opens that camera live. The screen stays on while this is showing; after 3 minutes
+ * favourites, or everything until you pick some). Tap a device to switch it, hold it for its settings. Swipe left for
+ * every camera's snapshot, with a Live button. A doorbell press opens that camera live. The screen stays on while this is showing; after 3 minutes
  * untouched it fades to a big clock, and a tap brings the dashboard back.
  */
 export function Wall() {
@@ -120,7 +121,7 @@ export function Wall() {
             </View>
             <View style={styles.flow}>{tiles.slice(beside)}</View>
           </ScrollView>
-          <CameraPage cameras={allCameras} width={width} live={page === 1 && focused && !idle && !watch && !detail} onWatch={setWatch} />
+          <CameraPage cameras={allCameras} width={width} active={page === 1 && focused && !idle && !watch && !detail} onWatch={setWatch} />
         </ScrollView>
       </SafeAreaView>
 
@@ -509,64 +510,80 @@ function CameraTile({ camera, width, height, onPress }: { camera: HassEntity; wi
   );
 }
 
-/** Every camera, live while `live` (the page is showing and nothing covers it); tap one to watch it full screen. */
-function CameraPage({ cameras, width, live, onWatch }: {
+/**
+ * Every camera's snapshot; Live plays them all at once until Stop, 2 minutes, or the page being swiped away or covered.
+ * "Every hour" keeps the snapshots fresh with a Home Assistant automation.
+ */
+function CameraPage({ cameras, width, active, onWatch }: {
   cameras: HassEntity[];
   width: number;
-  live: boolean;
+  active: boolean;
   onWatch: (camera: HassEntity) => void;
 }) {
+  const { creds } = useHA();
+  const [live, setLive] = useState(false);
+  if (live && !active) setLive(false);
+  const stop = useCallback(() => setLive(false), []);
+  const hourly = !!useAutomation(SNAPSHOTS_ID);
   const cols = width > 900 ? 3 : 2;
   const w = Math.floor((width - PAD * 2 - GAP * (cols - 1)) / cols);
+  const toggleHourly = () =>
+    creds &&
+    (hourly ? removeAutomation(creds, SNAPSHOTS_ID) : setHourlySnapshots(creds)).catch((e) =>
+      Alert.alert('Couldn’t change hourly snapshots', e?.message ?? String(e)),
+    );
   return (
     <ScrollView style={{ width }} contentContainerStyle={styles.page}>
-      <Text style={styles.heading}>Cameras</Text>
-      {live ? (
-        <LiveCameras cameras={cameras} w={w} onWatch={onWatch} />
+      <View style={styles.between}>
+        <Text style={styles.heading}>Cameras</Text>
+        <View style={styles.row}>
+          <Pill icon={hourly ? 'checkmark.circle.fill' : 'clock'} label="New snapshot every hour" on={hourly} onPress={toggleHourly} />
+          <Pill icon={live ? 'stop.fill' : 'play.fill'} label={live ? 'Stop' : 'Live'} on={live} onPress={() => setLive(!live)} />
+        </View>
+      </View>
+      {creds && live ? (
+        <LiveCameras cameras={cameras} w={w} onWatch={onWatch} onStop={stop} />
       ) : (
-        <Snapshots cameras={cameras} w={w} onWatch={onWatch} />
+        <View style={styles.flow}>
+          {cameras.map((c) => (
+            <CameraTile key={c.entity_id} camera={c} width={w} height={Math.round((w * 9) / 16)} onPress={() => onWatch(c)} />
+          ))}
+        </View>
       )}
     </ScrollView>
   );
 }
 
-type CameraList = { cameras: HassEntity[]; w: number; onWatch: (camera: HassEntity) => void };
-
-function Snapshots({ cameras, w, onWatch }: CameraList) {
+function Pill({ icon, label, on, onPress }: { icon: SFSymbol; label: string; on: boolean; onPress: () => void }) {
   return (
-    <View style={styles.flow}>
-      {cameras.map((c) => (
-        <CameraTile key={c.entity_id} camera={c} width={w} height={Math.round((w * 9) / 16)} onPress={() => onWatch(c)} />
-      ))}
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: on }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.pill, on && styles.pillOn, pressed && styles.pressed]}>
+      <SymbolView name={icon} size={14} tintColor={on ? '#1c1c1e' : '#fff'} />
+      <Text style={[styles.pillText, on && styles.ink]}>{label}</Text>
+    </Pressable>
   );
 }
 
-/** All cameras at once, each its own live view; after LIVE_MS back to snapshots until asked again. */
-function LiveCameras({ cameras, w, onWatch }: CameraList) {
+function LiveCameras({ cameras, w, onWatch, onStop }: {
+  cameras: HassEntity[];
+  w: number;
+  onWatch: (camera: HassEntity) => void;
+  onStop: () => void;
+}) {
   const { creds } = useHA();
-  const [expired, setExpired] = useState(false);
   useEffect(() => {
-    if (expired) return;
-    const t = setTimeout(() => setExpired(true), LIVE_MS);
+    const t = setTimeout(onStop, LIVE_MS);
     return () => clearTimeout(t);
-  }, [expired]);
-  if (expired || !creds)
-    return (
-      <>
-        <Snapshots cameras={cameras} w={w} onWatch={onWatch} />
-        <Pressable accessibilityRole="button" onPress={() => setExpired(false)} style={({ pressed }) => [styles.pill, pressed && styles.pressed]}>
-          <SymbolView name="play.fill" size={16} tintColor="#fff" />
-          <Text style={styles.title}>Watch live again</Text>
-        </Pressable>
-      </>
-    );
+  }, [onStop]);
   return (
     <View style={styles.flow}>
       {cameras.map((c) => (
         <LiveTile
           key={c.entity_id}
-          creds={creds}
+          creds={creds!}
           camera={{ slug: c.attributes.snapshot_of, name: name(c) }}
           width={w}
           hidden={false}
@@ -598,7 +615,9 @@ const styles = StyleSheet.create({
   sky: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   heading: { color: '#fff', fontSize: 28, fontWeight: '700' },
   banner: { color: '#FF9F0A', fontSize: 15, fontWeight: '600' },
-  pill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.14)' },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.14)' },
+  pillOn: { backgroundColor: '#f2f2f7' },
+  pillText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   halo: { position: 'absolute', shadowOpacity: 1, shadowOffset: { width: 0, height: 0 } },
   camera: { borderRadius: 28, overflow: 'hidden', backgroundColor: '#1c1c1e' },
   cameraLabel: {

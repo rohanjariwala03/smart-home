@@ -15,6 +15,7 @@ import { rest } from '@/schedules';
 //   smarthome_motionlight_<camera>  camera motion after dark switches lights on for a few minutes
 //   smarthome_health           phone alert when a device goes offline or a battery runs low
 //   smarthome_announce         Echo announcements (Alexa Media Player) for doorbell, motion and health
+//   smarthome_hourly_snapshots a new snapshot from every Blink camera on the hour
 // Like schedules, they live in Home Assistant and run with the phone off.
 
 const slug = (entity: string) => entity.replace('.', '_');
@@ -29,6 +30,7 @@ export const followId = (entity: string) => `smarthome_follow_${slug(entity)}`;
 export const doorbellTvId = (camera: string) => `smarthome_doorbelltv_${slug(camera)}`;
 export const HEALTH_ID = 'smarthome_health';
 export const ANNOUNCE_ID = 'smarthome_announce';
+export const SNAPSHOTS_ID = 'smarthome_hourly_snapshots';
 
 /**
  * Blink Instant Events' "last Blink refresh" sensor; its `state` attribute is "auth_failed" once Blink signs it out.
@@ -251,6 +253,28 @@ export const setLeaveArm = (creds: Creds, alarm: string, name: string) =>
     triggers: [{ trigger: 'state', entity_id: 'zone.home', to: '0', for: '00:05:00' }],
     conditions: [],
     actions: [{ action: 'alarm_control_panel.alarm_arm_away', target: { entity_id: alarm } }],
+    mode: 'single',
+  });
+
+/**
+ * Press every Blink camera's Refresh snapshot button on the hour (each wakes a battery camera for a moment). Found by
+ * template when it runs, so a camera added later is included.
+ */
+export const setHourlySnapshots = (creds: Creds) =>
+  rest(creds, 'POST', SNAPSHOTS_ID, {
+    alias: 'Camera snapshots every hour',
+    description: 'Created by the Smart Home app',
+    triggers: [{ trigger: 'time_pattern', minutes: 0 }],
+    conditions: [],
+    actions: [
+      {
+        action: 'button.press',
+        target: {
+          entity_id:
+            "{{ integration_entities('blink_instant_events') | select('match', 'button[.]') | select('search', '_refresh_snapshot$') | list }}",
+        },
+      },
+    ],
     mode: 'single',
   });
 
