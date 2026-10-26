@@ -19,7 +19,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { removeAutomation, setHourlySnapshots, SNAPSHOTS_ID, useAutomation } from '@/automations';
+import { removeAutomation, setSnapshots, SNAPSHOTS_ID, useAutomation } from '@/automations';
 import { allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { LiveTile } from '@/components/live-grid';
@@ -512,7 +512,7 @@ function CameraTile({ camera, width, height, onPress }: { camera: HassEntity; wi
 
 /**
  * Every camera's snapshot; Live plays them all at once until Stop, 2 minutes, or the page being swiped away or covered.
- * "Every hour" keeps the snapshots fresh with a Home Assistant automation.
+ * "Every 6 hours" keeps the snapshots fresh with a Home Assistant automation.
  */
 function CameraPage({ cameras, width, active, onWatch }: {
   cameras: HassEntity[];
@@ -524,20 +524,20 @@ function CameraPage({ cameras, width, active, onWatch }: {
   const [live, setLive] = useState(false);
   if (live && !active) setLive(false);
   const stop = useCallback(() => setLive(false), []);
-  const hourly = !!useAutomation(SNAPSHOTS_ID);
+  const refreshing = !!useAutomation(SNAPSHOTS_ID);
   const cols = width > 900 ? 3 : 2;
   const w = Math.floor((width - PAD * 2 - GAP * (cols - 1)) / cols);
-  const toggleHourly = () =>
+  const toggleSnapshots = () =>
     creds &&
-    (hourly ? removeAutomation(creds, SNAPSHOTS_ID) : setHourlySnapshots(creds)).catch((e) =>
-      Alert.alert('Couldn’t change hourly snapshots', e?.message ?? String(e)),
+    (refreshing ? removeAutomation(creds, SNAPSHOTS_ID) : setSnapshots(creds)).catch((e) =>
+      Alert.alert('Couldn’t change camera snapshots', e?.message ?? String(e)),
     );
   return (
     <ScrollView style={{ width }} contentContainerStyle={styles.page}>
       <View style={styles.between}>
         <Text style={styles.heading}>Cameras</Text>
         <View style={styles.row}>
-          <Pill icon={hourly ? 'checkmark.circle.fill' : 'clock'} label="New snapshot every hour" on={hourly} onPress={toggleHourly} />
+          <Pill icon={refreshing ? 'checkmark.circle.fill' : 'clock'} label="New snapshot every 6 hours" on={refreshing} onPress={toggleSnapshots} />
           <Pill icon={live ? 'stop.fill' : 'play.fill'} label={live ? 'Stop' : 'Live'} on={live} onPress={() => setLive(!live)} />
         </View>
       </View>

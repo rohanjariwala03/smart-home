@@ -15,7 +15,7 @@ import { rest } from '@/schedules';
 //   smarthome_motionlight_<camera>  camera motion after dark switches lights on for a few minutes
 //   smarthome_health           phone alert when a device goes offline or a battery runs low
 //   smarthome_announce         Echo announcements (Alexa Media Player) for doorbell, motion and health
-//   smarthome_hourly_snapshots a new snapshot from every Blink camera on the hour
+//   smarthome_camera_snapshots a new snapshot from every Blink camera every 6 hours
 // Like schedules, they live in Home Assistant and run with the phone off.
 
 const slug = (entity: string) => entity.replace('.', '_');
@@ -30,7 +30,7 @@ export const followId = (entity: string) => `smarthome_follow_${slug(entity)}`;
 export const doorbellTvId = (camera: string) => `smarthome_doorbelltv_${slug(camera)}`;
 export const HEALTH_ID = 'smarthome_health';
 export const ANNOUNCE_ID = 'smarthome_announce';
-export const SNAPSHOTS_ID = 'smarthome_hourly_snapshots';
+export const SNAPSHOTS_ID = 'smarthome_camera_snapshots';
 
 /**
  * Blink Instant Events' "last Blink refresh" sensor; its `state` attribute is "auth_failed" once Blink signs it out.
@@ -257,14 +257,15 @@ export const setLeaveArm = (creds: Creds, alarm: string, name: string) =>
   });
 
 /**
- * Press every Blink camera's Refresh snapshot button on the hour (each wakes a battery camera for a moment). Found by
+ * Press every Blink camera's Refresh snapshot button every 6 hours, at 0:00, 6:00, 12:00 and 18:00 (each wakes a
+ * battery camera for a moment). Found by
  * template when it runs, so a camera added later is included.
  */
-export const setHourlySnapshots = (creds: Creds) =>
+export const setSnapshots = (creds: Creds) =>
   rest(creds, 'POST', SNAPSHOTS_ID, {
-    alias: 'Camera snapshots every hour',
+    alias: 'Camera snapshots every 6 hours',
     description: 'Created by the Smart Home app',
-    triggers: [{ trigger: 'time_pattern', minutes: 0 }],
+    triggers: [{ trigger: 'time_pattern', hours: '/6', minutes: 0 }],
     conditions: [],
     actions: [
       {
