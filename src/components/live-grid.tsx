@@ -47,7 +47,7 @@ export function LiveGrid({ creds, cameras, onClose }: { creds: Creds; cameras: G
         </View>
         <ScrollView contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + Spacing.three }]}>
           {cameras.map((c) => (
-            <Tile
+            <LiveTile
               key={c.slug}
               creds={creds}
               camera={c}
@@ -64,7 +64,8 @@ export function LiveGrid({ creds, cameras, onClose }: { creds: Creds; cameras: G
   );
 }
 
-function Tile({ creds, camera, width, maxHeight, hidden, focused, onPress }: {
+/** One live camera (also the iPad dashboard's camera page). */
+export function LiveTile({ creds, camera, width, maxHeight, hidden, focused, onPress }: {
   creds: Creds;
   camera: GridCamera;
   width: number;

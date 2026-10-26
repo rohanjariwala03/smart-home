@@ -42,14 +42,10 @@ export const tileWidth = (screenWidth: number) => (screenWidth - Spacing.three *
 // The colour a device glows in when on (a light uses its own colour).
 const TINT: Record<string, number[]> = { fan: [0, 188, 212], vacuum: [43, 182, 115], media_player: [124, 131, 253] };
 
-/**
- * A device, Home Assistant style: tap the icon to switch it, tap the rest for its settings. The icon flips the moment
- * it's tapped and fades between colours; a change made elsewhere (Alexa, a schedule) gives a light tap while you look.
- */
-export function Tile({ entity, width, onSettings }: { entity: HassEntity; width: number; onSettings: () => void }) {
+/** What a device tile shows and does: on or off (the tapped position until HA confirms), its state line, colour and icon. */
+export function useDevice(entity: HassEntity) {
   const { call } = useHA();
   const { end } = useTimer(entity.entity_id);
-  const theme = useTheme();
   const off = unavailable(entity);
   const vacuum = domainOf(entity) === 'vacuum';
   const media = domainOf(entity) === 'media_player';
@@ -67,6 +63,29 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
     : brightness ? `${Math.round(brightness / 2.55)}%`
     : 'On';
   const timer = end ? ` · ⏱ ${until(end)}` : '';
+
+  const toggle = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Vacuums have no toggle: tap starts, or pauses while cleaning. An Echo plays or pauses.
+    shown.set(!isOn, () =>
+      vacuum
+        ? call('vacuum', isOn ? 'pause' : 'start', { entity_id: entity.entity_id })
+        : echo
+        ? call('media_player', 'media_play_pause', { entity_id: entity.entity_id })
+        : call(domainOf(entity), isOn ? 'turn_off' : 'turn_on', { entity_id: entity.entity_id }),
+    );
+  };
+  const icon: SFSymbol = echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power');
+  return { off, isOn, state, timer, rgb: [r, g, b], icon, toggle };
+}
+
+/**
+ * A device, Home Assistant style: tap the icon to switch it, tap the rest for its settings. The icon flips the moment
+ * it's tapped and fades between colours; a change made elsewhere (Alexa, a schedule) gives a light tap while you look.
+ */
+export function Tile({ entity, width, onSettings }: { entity: HassEntity; width: number; onSettings: () => void }) {
+  const theme = useTheme();
+  const { off, isOn, state, timer, rgb: [r, g, b], icon, toggle: flip } = useDevice(entity);
 
   const progress = useSharedValue(isOn ? 1 : 0);
   const pop = useSharedValue(1);
@@ -88,16 +107,8 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
   }));
 
   const toggle = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     tapped.current = true;
-    // Vacuums have no toggle: tap starts, or pauses while cleaning. An Echo plays or pauses.
-    shown.set(!isOn, () =>
-      vacuum
-        ? call('vacuum', isOn ? 'pause' : 'start', { entity_id: entity.entity_id })
-        : echo
-        ? call('media_player', 'media_play_pause', { entity_id: entity.entity_id })
-        : call(domainOf(entity), isOn ? 'turn_off' : 'turn_on', { entity_id: entity.entity_id }),
-    );
+    flip();
   };
 
   return (
@@ -116,7 +127,7 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
         onPress={toggle}>
         <Animated.View style={[styles.icon, iconStyle, off && styles.dim]}>
           <SymbolView
-            name={echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power')}
+            name={icon}
             size={18}
             tintColor={isOn ? `rgb(${r},${g},${b})` : theme.textSecondary}
           />

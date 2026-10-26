@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.rohanjariwala.smarthome",
       "appleTeamId": "6JZ9VLN88F",
       "infoPlist": {
