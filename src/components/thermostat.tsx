@@ -147,6 +147,8 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
         />
       )}
 
+      <History entity={entity} />
+
       {rooms.length > 1 && (
         <View style={styles.sensors}>
           {rooms.map((r) => (
@@ -160,6 +162,113 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
           ))}
         </View>
       )}
+    </View>
+  );
+}
+
+type Row = { s: string; a?: Record<string, any>; lu: number };
+
+/**
+ * The last day's temperature as bars, orange where it was heating and blue where it was cooling, then how long it ran
+ * today and on each of the last 7 days. From Home Assistant's history (it keeps 10 days by default).
+ */
+function History({ entity }: { entity: HassEntity }) {
+  const { conn } = useHA();
+  const [rows, setRows] = useState<Row[]>();
+  const [now] = useState(Date.now);
+  const id = entity.entity_id;
+
+  useEffect(() => {
+    conn
+      ?.sendMessagePromise<Record<string, Row[]>>({
+        type: 'history/history_during_period',
+        start_time: new Date(now - 7 * 864e5).toISOString(),
+        entity_ids: [id],
+        minimal_response: false,
+        no_attributes: false,
+        significant_changes_only: false,
+      })
+      .then((r) => setRows(r[id] ?? []), () => setRows([]));
+  }, [conn, id, now]);
+
+  if (!rows?.length) return null;
+
+  // Each row holds until the next one. Rows only carry attributes when they changed; keep the last ones seen.
+  const points: { from: number; to: number; action?: string; temp?: number }[] = [];
+  let attrs: Record<string, any> = {};
+  for (const [i, r] of rows.entries()) {
+    attrs = r.a ?? attrs;
+    points.push({ from: r.lu * 1000, to: rows[i + 1] ? rows[i + 1].lu * 1000 : now, action: attrs.hvac_action, temp: attrs.current_temperature });
+  }
+  const ran = (action: 'heating' | 'cooling', a: number, b: number) =>
+    points.reduce((sum, p) => (p.action === action || (action === 'heating' && p.action === 'preheating') ? sum + Math.max(0, Math.min(b, p.to) - Math.max(a, p.from)) : sum), 0);
+  const tempAt = (t: number) => [...points].reverse().find((p) => p.from <= t && p.temp != null)?.temp;
+
+  const BUCKET = 20 * 60e3;
+  const bars = Array.from({ length: 72 }, (_, i) => {
+    const start = now - 864e5 + i * BUCKET;
+    return { start, temp: tempAt(start + BUCKET), heat: ran('heating', start, start + BUCKET), cool: ran('cooling', start, start + BUCKET) };
+  });
+  const temps = bars.flatMap((b) => (b.temp != null ? [b.temp] : []));
+  if (!temps.length) return null;
+  const low = Math.floor(Math.min(...temps)) - 1;
+  const high = Math.ceil(Math.max(...temps)) + 1;
+
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const start = midnight - (6 - i) * 864e5;
+    const end = Math.min(start + 864e5, now);
+    return { start, heat: ran('heating', start, end), cool: ran('cooling', start, end) };
+  });
+  const most = Math.max(...days.map((d) => d.heat + d.cool), 3600e3);
+  const today = days[6];
+  const hours = (ms: number) => {
+    const min = Math.round(ms / 60e3);
+    return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60} min`;
+  };
+  const summary = [today.heat > 0 && `Heated ${hours(today.heat)}`, today.cool > 0 && `Cooled ${hours(today.cool)}`].filter(Boolean).join(' · ') || 'Hasn’t run today';
+
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.panelTitle}>Last 24 hours</Text>
+      <Text style={styles.setLabel}>{summary}</Text>
+      <View style={styles.chart} accessible accessibilityLabel={`Temperature over the last day, between ${degrees(Math.min(...temps))} and ${degrees(Math.max(...temps))}. ${summary} today.`}>
+        <View style={styles.axis}>
+          <Text style={styles.tick}>{high}°</Text>
+          <Text style={styles.tick}>{low}°</Text>
+        </View>
+        {bars.map((b) => (
+          <View key={b.start} style={styles.chartCol}>
+            {b.temp != null && (
+              <View
+                style={[
+                  styles.chartBar,
+                  { height: `${Math.max(4, ((b.temp - low) / (high - low)) * 100)}%`, backgroundColor: b.heat > 0 ? HEAT : b.cool > 0 ? COOL : '#FFFFFF33' },
+                ]}
+              />
+            )}
+          </View>
+        ))}
+      </View>
+      <View style={styles.ticks}>
+        {[24, 18, 12, 6].map((h) => (
+          <Text key={h} style={styles.tick}>{new Date(now - h * 3600e3).toLocaleTimeString([], { hour: 'numeric' })}</Text>
+        ))}
+        <Text style={styles.tick}>Now</Text>
+      </View>
+
+      <Text style={[styles.panelTitle, styles.spaced]}>Last 7 days</Text>
+      <View style={styles.week}>
+        {days.map((d) => (
+          <View key={d.start} style={styles.dayCol} accessible accessibilityLabel={`${new Date(d.start).toLocaleDateString([], { weekday: 'long' })}: ${d.heat || d.cool ? [d.heat && `heated ${hours(d.heat)}`, d.cool && `cooled ${hours(d.cool)}`].filter(Boolean).join(', ') : 'didn’t run'}`}>
+            <View style={styles.dayTrack}>
+              <View style={{ height: `${(d.cool / most) * 100}%`, backgroundColor: COOL }} />
+              <View style={{ height: `${(d.heat / most) * 100}%`, backgroundColor: HEAT }} />
+            </View>
+            <Text style={styles.tick}>{new Date(d.start).toLocaleDateString([], { weekday: 'narrow' })}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -388,6 +497,16 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     backgroundColor: '#FFFFFF0F',
   },
+  chart: { flexDirection: 'row', alignItems: 'flex-end', height: 110, gap: 1 },
+  axis: { height: '100%', justifyContent: 'space-between', marginRight: 6 },
+  chartCol: { flex: 1, height: '100%', justifyContent: 'flex-end' },
+  chartBar: { borderRadius: 1.5 },
+  ticks: { flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 28 },
+  tick: { color: DIM, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  spaced: { marginTop: 8 },
+  week: { flexDirection: 'row', gap: 10, height: 90 },
+  dayCol: { flex: 1, alignItems: 'center', gap: 4 },
+  dayTrack: { flex: 1, width: '100%', borderRadius: 6, overflow: 'hidden', justifyContent: 'flex-end', backgroundColor: '#FFFFFF14' },
   segmentText: { color: DIM, fontSize: 13, fontWeight: '600' },
   segmentOn: { color: '#FFFFFF' },
   sensors: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

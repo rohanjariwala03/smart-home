@@ -217,6 +217,155 @@ struct DeviceControl: ControlWidget {
   }
 }
 
+// MARK: - Thermostat
+
+struct ThermostatEntry: TimelineEntry {
+  let date: Date
+  let thermostat: HAClimate?
+  var error: String? = nil
+}
+
+struct ThermostatProvider: TimelineProvider {
+  func placeholder(in context: Context) -> ThermostatEntry { ThermostatEntry(date: .now, thermostat: nil) }
+
+  func getSnapshot(in context: Context, completion: @escaping (ThermostatEntry) -> Void) {
+    Task { completion(await entry()) }
+  }
+
+  // ponytail: refreshes every 15 min and after each − / + tap, like the devices widget.
+  func getTimeline(in context: Context, completion: @escaping (Timeline<ThermostatEntry>) -> Void) {
+    Task { completion(Timeline(entries: [await entry()], policy: .after(.now.addingTimeInterval(15 * 60)))) }
+  }
+
+  private func entry() async -> ThermostatEntry {
+    do {
+      guard let t = try await HA.thermostat() else { return ThermostatEntry(date: .now, thermostat: nil, error: "No thermostat in Home Assistant") }
+      return ThermostatEntry(date: .now, thermostat: t)
+    } catch HAError.notSignedIn {
+      return ThermostatEntry(date: .now, thermostat: nil, error: "Open Smart Home and connect to Home Assistant")
+    } catch {
+      return ThermostatEntry(date: .now, thermostat: nil, error: "Can't reach Home Assistant")
+    }
+  }
+}
+
+private let navy = Color(red: 0.05, green: 0.11, blue: 0.16)
+private let dim = Color(red: 0.62, green: 0.69, blue: 0.76)
+
+struct ThermostatView: View {
+  let entry: ThermostatEntry
+  @Environment(\.widgetFamily) private var family
+
+  var body: some View {
+    if let t = entry.thermostat {
+      switch family {
+      case .accessoryCircular:
+        Gauge(value: t.attributes.current_temperature ?? 0, in: (t.attributes.min_temp ?? 0)...(t.attributes.max_temp ?? 100)) {
+          Image(systemName: t.symbol)
+        } currentValueLabel: {
+          Text(t.attributes.current_temperature.map { "\(Int($0.rounded()))°" } ?? "–")
+        }
+        .gaugeStyle(.accessoryCircular)
+        .accessibilityLabel("\(deg(t.attributes.current_temperature)) inside, \(t.summary)")
+      case .accessoryRectangular:
+        VStack(alignment: .leading, spacing: 0) {
+          Label("\(deg(t.attributes.current_temperature)) inside", systemImage: t.symbol).font(.headline)
+          Text(t.summary).font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      case .accessoryInline:
+        Label("\(deg(t.attributes.current_temperature)) · \(t.doing)", systemImage: t.symbol)
+      case .systemMedium:
+        HStack(spacing: 16) {
+          reading(t)
+          if !t.off {
+            VStack(spacing: 10) {
+              if t.range {
+                setPoint(t, key: "target_temp_low", label: "Heat", value: t.attributes.target_temp_low, color: .orange)
+                setPoint(t, key: "target_temp_high", label: "Cool", value: t.attributes.target_temp_high, color: .blue)
+              } else {
+                setPoint(t, key: "", label: t.state == "cool" ? "Cool to" : "Heat to", value: t.attributes.temperature, color: t.state == "cool" ? .blue : .orange)
+              }
+            }
+          }
+        }
+      default:
+        VStack(alignment: .leading, spacing: 4) {
+          reading(t)
+          if !t.off, let target = t.target {
+            HStack(spacing: 6) {
+              step(t, key: "", warmer: false)
+              Text(target).font(.subheadline.weight(.semibold)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1).frame(maxWidth: .infinity)
+              step(t, key: "", warmer: true)
+            }
+          }
+        }
+      }
+    } else {
+      Label(entry.error ?? "Thermostat", systemImage: "thermometer.medium")
+        .font(.caption)
+        .foregroundStyle(dim)
+        .multilineTextAlignment(.center)
+    }
+  }
+
+  private func reading(_ t: HAClimate) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Label(t.doing, systemImage: t.symbol)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(t.working ? t.tint : .white)
+      Text(deg(t.attributes.current_temperature))
+        .font(.system(size: 46, weight: .thin))
+        .monospacedDigit()
+        .minimumScaleFactor(0.5)
+        .lineLimit(1)
+        .foregroundStyle(.white)
+      Spacer(minLength: 0)
+      if let h = t.attributes.current_humidity {
+        Label("\(Int(h))%", systemImage: "humidity.fill").font(.caption2).foregroundStyle(dim)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func setPoint(_ t: HAClimate, key: String, label: String, value: Double?, color: Color) -> some View {
+    HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: 0) {
+        Text(label).font(.caption2.weight(.semibold)).foregroundStyle(color)
+        Text(deg(value)).font(.title3.weight(.medium)).monospacedDigit().foregroundStyle(.white)
+      }
+      .frame(minWidth: 52, alignment: .leading)
+      step(t, key: key, warmer: false)
+      step(t, key: key, warmer: true)
+    }
+  }
+
+  private func step(_ t: HAClimate, key: String, warmer: Bool) -> some View {
+    Button(intent: NudgeThermostatIntent(t.entity_id, key: key, warmer: warmer)) {
+      Image(systemName: warmer ? "plus" : "minus")
+        .font(.system(size: 14, weight: .bold))
+        .foregroundStyle(.white)
+        .frame(width: 32, height: 32)
+        .background(.white.opacity(0.15), in: Circle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(warmer ? "Warmer" : "Cooler")
+  }
+}
+
+struct ThermostatWidget: Widget {
+  var body: some WidgetConfiguration {
+    StaticConfiguration(kind: "Thermostat", provider: ThermostatProvider()) { entry in
+      ThermostatView(entry: entry)
+        .containerBackground(for: .widget) { navy }
+        .widgetURL(URL(string: "smarthome://devices?device=\(entry.thermostat?.entity_id ?? "")"))
+    }
+    .configurationDisplayName("Thermostat")
+    .description("The temperature inside and what the thermostat is doing. Tap − or + to change it.")
+    .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
+  }
+}
+
 // MARK: - Widget
 
 struct DevicesWidget: Widget {
@@ -234,6 +383,7 @@ struct DevicesWidget: Widget {
 struct SmartHomeWidgets: WidgetBundle {
   var body: some Widget {
     DevicesWidget()
+    ThermostatWidget()
     DeviceControl()
   }
 }

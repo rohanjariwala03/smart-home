@@ -1,3 +1,4 @@
+import { router, useLocalSearchParams } from 'expo-router';
 import type { HassEntity } from 'home-assistant-js-websocket';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
@@ -20,7 +21,10 @@ const OTHER = 'Other';
 // Every device by room, then scenes. Home shows only the favourites.
 export default function DevicesScreen() {
   const { entities, areas, devices: registry, status, call } = useHA();
-  const [detail, setDetail] = useState<string>();
+  // smarthome://devices?device=<entity id> opens its sheet (the thermostat widget).
+  const { device: linked } = useLocalSearchParams<{ device?: string }>();
+  const [picked, setDetail] = useState<string>();
+  const detail = picked ?? linked;
   const [setUp, setSetUp] = useState<string>();
   const discovered = useDiscovered();
   const { width } = useWindowDimensions();
@@ -98,7 +102,7 @@ export default function DevicesScreen() {
       <SceneList />
 
       {setUp && <AddDeviceSheet start={{ flowId: setUp }} onClose={() => setSetUp(undefined)} />}
-      {detail && entities[detail] && <DeviceSheet entity={entities[detail]} onClose={() => setDetail(undefined)} />}
+      {detail && entities[detail] && <DeviceSheet entity={entities[detail]} onClose={() => (setDetail(undefined), router.setParams({ device: undefined }))} />}
     </Screen>
   );
 }

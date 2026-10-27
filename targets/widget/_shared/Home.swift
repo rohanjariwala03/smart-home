@@ -181,6 +181,114 @@ enum HA {
   }
 }
 
+// MARK: - Thermostat
+
+struct HAClimate: Decodable {
+  let entity_id: String
+  let state: String
+  let attributes: Attributes
+
+  struct Attributes: Decodable {
+    let friendly_name: String?
+    let current_temperature: Double?
+    let current_humidity: Double?
+    let temperature: Double?
+    let target_temp_low: Double?
+    let target_temp_high: Double?
+    let target_temp_step: Double?
+    let min_temp: Double?
+    let max_temp: Double?
+    let hvac_action: String?
+  }
+
+  static let modeNames = ["off": "Off", "heat": "Heat", "cool": "Cool", "heat_cool": "Heat/Cool", "auto": "Auto", "dry": "Dry", "fan_only": "Fan"]
+
+  var name: String { attributes.friendly_name ?? entity_id }
+  var unavailable: Bool { state == "unavailable" || state == "unknown" }
+  var off: Bool { state == "off" || unavailable }
+  /// Heat/Cool: a low and a high set point instead of one.
+  var range: Bool { attributes.temperature == nil && attributes.target_temp_low != nil }
+  var step: Double { attributes.target_temp_step ?? ((attributes.max_temp ?? 0) > 40 ? 1 : 0.5) }
+  var heating: Bool { attributes.hvac_action == "heating" || attributes.hvac_action == "preheating" }
+  var cooling: Bool { attributes.hvac_action == "cooling" || (!heating && state == "cool") }
+  var working: Bool { heating || attributes.hvac_action == "cooling" }
+  var symbol: String { off ? "thermometer.medium" : cooling ? "snowflake" : heating ? "flame.fill" : "thermometer.medium" }
+  var tint: Color { cooling ? Color(red: 0.25, green: 0.61, blue: 1) : Color(red: 1, green: 0.54, blue: 0.24) }
+
+  /// "Heating", "Idle", "Off" (same words as the app, src/climate.ts).
+  var doing: String {
+    if unavailable { return "Unavailable" }
+    if state == "off" { return "Off" }
+    switch attributes.hvac_action {
+    case "heating", "preheating": return "Heating"
+    case "cooling": return "Cooling"
+    case "idle": return "Idle"
+    case "fan": return "Fan"
+    default: return HAClimate.modeNames[state] ?? state
+    }
+  }
+
+  /// "22°" or "20°–24°"
+  var target: String? {
+    if off { return nil }
+    if let t = attributes.temperature { return deg(t) }
+    if let l = attributes.target_temp_low, let h = attributes.target_temp_high { return "\(deg(l))–\(deg(h))" }
+    return nil
+  }
+
+  /// "Heating to 22°", "Idle · 20°–24°"
+  var summary: String { target.map { "\(doing)\(working ? " to" : " ·") \($0)" } ?? doing }
+}
+
+/// One decimal (21.5°), whole numbers without one (21°).
+func deg(_ v: Double?) -> String { v.map { "\($0.formatted(.number.precision(.fractionLength(0...1))))°" } ?? "–" }
+
+extension HA {
+  /// The first thermostat. Picked out of the raw list, so other entities' attributes don't have to decode.
+  static func thermostat() async throws -> HAClimate? {
+    let all = try JSONSerialization.jsonObject(with: await request("/api/states")) as? [[String: Any]] ?? []
+    guard let raw = all.first(where: { ($0["entity_id"] as? String)?.hasPrefix("climate.") == true }) else { return nil }
+    return try JSONDecoder().decode(HAClimate.self, from: JSONSerialization.data(withJSONObject: raw))
+  }
+
+  static func climate(_ id: String) async throws -> HAClimate {
+    try JSONDecoder().decode(HAClimate.self, from: await request("/api/states/\(id)"))
+  }
+
+  /// Sets one set point, or in Heat/Cool moves the low and high together (keeping the gap) so `to` is in the middle.
+  static func setTemperature(_ t: HAClimate, to value: Double) async throws -> String {
+    let a = t.attributes
+    let clamp = { (v: Double) in min(a.max_temp ?? 100, max(a.min_temp ?? 0, (v / t.step).rounded() * t.step)) }
+    var body: [String: Any] = ["entity_id": t.entity_id]
+    let said: String
+    if t.range, let l = a.target_temp_low, let h = a.target_temp_high {
+      let half = (h - l) / 2
+      body["target_temp_low"] = clamp(value - half)
+      body["target_temp_high"] = clamp(value + half)
+      said = "Heat to \(deg(clamp(value - half))), cool to \(deg(clamp(value + half)))."
+    } else {
+      body["temperature"] = clamp(value)
+      said = "Set to \(deg(clamp(value)))."
+    }
+    _ = try await request("/api/services/climate/set_temperature", body: body)
+    return said
+  }
+
+  /// One step warmer or cooler: a set point (`key`), or in Heat/Cool both together when `key` is empty.
+  static func nudge(_ t: HAClimate, key: String, by: Double) async throws {
+    let a = t.attributes
+    let clamp = { (v: Double) in min(a.max_temp ?? 100, max(a.min_temp ?? 0, v)) }
+    var body: [String: Any] = ["entity_id": t.entity_id]
+    if t.range, let l = a.target_temp_low, let h = a.target_temp_high {
+      body["target_temp_low"] = key == "target_temp_high" ? l : clamp(l + by)
+      body["target_temp_high"] = key == "target_temp_low" ? h : clamp(h + by)
+    } else if let v = a.temperature {
+      body["temperature"] = clamp(v + by)
+    } else { return }
+    _ = try await request("/api/services/climate/set_temperature", body: body)
+  }
+}
+
 // MARK: - Entities
 
 struct DeviceEntity: AppEntity {
@@ -378,12 +486,117 @@ struct SnoozeCameraAlertsIntent: AppIntent {
   }
 }
 
+struct NudgeThermostatIntent: AppIntent {
+  static let title: LocalizedStringResource = "Thermostat warmer or cooler"
+  static let isDiscoverable = false // the widget's − and + buttons
+
+  @Parameter(title: "Entity ID") var entityId: String
+  @Parameter(title: "Set point") var key: String
+  @Parameter(title: "Warmer") var warmer: Bool
+
+  init() {}
+  init(_ entityId: String, key: String = "", warmer: Bool) {
+    self.entityId = entityId
+    self.key = key
+    self.warmer = warmer
+  }
+
+  func perform() async throws -> some IntentResult {
+    let t = try await HA.climate(entityId)
+    try await HA.nudge(t, key: key, by: warmer ? t.step : -t.step)
+    // Give the thermostat a moment to take it, so the widget reloads with the new set point.
+    try? await Task.sleep(for: .seconds(1.5))
+    return .result()
+  }
+}
+
+struct SetTemperatureIntent: AppIntent {
+  static let title: LocalizedStringResource = "Set the thermostat"
+  static let description = IntentDescription("Sets the thermostat's temperature. In Heat/Cool it moves both set points, keeping the gap between them.")
+
+  @Parameter(title: "Temperature", requestValueDialog: "To what temperature?") var temperature: Double
+
+  static var parameterSummary: some ParameterSummary { Summary("Set the thermostat to \(\.$temperature)") }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    guard let t = try await HA.thermostat() else { return .result(dialog: "Home Assistant has no thermostat.") }
+    if t.off { return .result(dialog: "The thermostat is off. Set its mode first.") }
+    let said = try await HA.setTemperature(t, to: temperature)
+    HA.refreshWidgets()
+    return .result(dialog: "\(said)")
+  }
+}
+
+enum ThermostatMode: String, AppEnum {
+  case off, heat, cool, heat_cool
+
+  static let typeDisplayRepresentation: TypeDisplayRepresentation = "Mode"
+  static let caseDisplayRepresentations: [ThermostatMode: DisplayRepresentation] = [
+    .off: DisplayRepresentation(title: "off"),
+    .heat: DisplayRepresentation(title: "heat", synonyms: ["heating"]),
+    .cool: DisplayRepresentation(title: "cool", synonyms: ["cooling", "AC"]),
+    .heat_cool: DisplayRepresentation(title: "heat and cool", synonyms: ["auto", "heat cool"]),
+  ]
+}
+
+struct ThermostatModeIntent: AppIntent {
+  static let title: LocalizedStringResource = "Set the thermostat mode"
+  static let description = IntentDescription("Switches the thermostat to off, heat, cool, or heat and cool.")
+
+  @Parameter(title: "Mode") var mode: ThermostatMode
+
+  static var parameterSummary: some ParameterSummary { Summary("Set the thermostat to \(\.$mode)") }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    guard let t = try await HA.thermostat() else { return .result(dialog: "Home Assistant has no thermostat.") }
+    _ = try await HA.request("/api/services/climate/set_hvac_mode", body: ["entity_id": t.entity_id, "hvac_mode": mode.rawValue])
+    HA.refreshWidgets()
+    return .result(dialog: "The thermostat is set to \(HAClimate.modeNames[mode.rawValue] ?? mode.rawValue).")
+  }
+}
+
+struct ThermostatStatusIntent: AppIntent {
+  static let title: LocalizedStringResource = "What's the temperature inside?"
+  static let description = IntentDescription("Says the temperature inside and what the thermostat is doing.")
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    guard let t = try await HA.thermostat() else { return .result(dialog: "Home Assistant has no thermostat.") }
+    if t.unavailable { return .result(dialog: "Home Assistant can't reach the thermostat right now.") }
+    let humidity = t.attributes.current_humidity.map { ", \(Int($0))% humidity" } ?? ""
+    return .result(dialog: "It's \(deg(t.attributes.current_temperature)) inside\(humidity). \(t.summary).")
+  }
+}
+
 // MARK: - Siri
 
 // Every phrase has to name the app. For no app name ("Hey Siri, porch light off for an hour"),
 // make a shortcut with that name in the Shortcuts app using one of these actions.
+// iOS takes at most 10 here; the other actions (a timer of any length, "are the cameras armed?") are still in the
+// Shortcuts app.
 struct SmartHomeShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
+    AppShortcut(
+      intent: ThermostatStatusIntent(),
+      phrases: [
+        "What's the temperature in \(.applicationName)",
+        "How warm is it in \(.applicationName)",
+        "What's the thermostat doing in \(.applicationName)",
+      ],
+      shortTitle: "Temperature inside",
+      systemImageName: "thermometer.medium"
+    )
+    AppShortcut(
+      intent: SetTemperatureIntent(),
+      phrases: ["Set the temperature in \(.applicationName)", "Change the thermostat in \(.applicationName)"],
+      shortTitle: "Set temperature",
+      systemImageName: "thermometer.and.liquid.waves"
+    )
+    AppShortcut(
+      intent: ThermostatModeIntent(),
+      phrases: ["Set the thermostat to \(\.$mode) in \(.applicationName)", "Turn the \(.applicationName) thermostat to \(\.$mode)"],
+      shortTitle: "Thermostat mode",
+      systemImageName: "arrow.up.arrow.down"
+    )
     AppShortcut(
       intent: TimerIntent(on: false, length: .h1),
       phrases: [
@@ -391,21 +604,6 @@ struct SmartHomeShortcuts: AppShortcutsProvider {
         "\(\.$device) off for an hour in \(.applicationName)",
       ],
       shortTitle: "Off for an hour",
-      systemImageName: "timer"
-    )
-    AppShortcut(
-      intent: TimerIntent(on: true, length: .h1),
-      phrases: [
-        "Turn on \(\.$device) for an hour in \(.applicationName)",
-        "\(\.$device) on for an hour in \(.applicationName)",
-      ],
-      shortTitle: "On for an hour",
-      systemImageName: "timer"
-    )
-    AppShortcut(
-      intent: TimerIntent(),
-      phrases: ["Set a \(.applicationName) timer for \(\.$device)", "\(.applicationName) timer"],
-      shortTitle: "Timer",
       systemImageName: "timer"
     )
     AppShortcut(
@@ -429,12 +627,6 @@ struct SmartHomeShortcuts: AppShortcutsProvider {
       phrases: ["Disarm the cameras in \(.applicationName)", "Disarm \(.applicationName)"],
       shortTitle: "Disarm cameras",
       systemImageName: "shield.slash"
-    )
-    AppShortcut(
-      intent: CamerasArmedIntent(),
-      phrases: ["Are the cameras armed in \(.applicationName)", "Is \(.applicationName) armed"],
-      shortTitle: "Armed?",
-      systemImageName: "questionmark.circle"
     )
     AppShortcut(
       intent: SnoozeCameraAlertsIntent(),

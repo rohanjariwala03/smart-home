@@ -1,3 +1,4 @@
+import * as Brightness from 'expo-brightness';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -37,6 +38,10 @@ import { runScene } from '@/scenes';
 const GAP = 14;
 const PAD = 24;
 const IDLE_MS = 3 * 60_000;
+// ponytail: fixed night hours (11 PM–7 AM); make them a setting if they ever need to change.
+const NIGHT_FROM = 23;
+const NIGHT_TO = 7;
+const NIGHT_IDLE_MS = 30_000;
 const LIVE_MS = 2 * 60_000; // Live on the camera page stops after this (Blink cameras run on batteries)
 const GLASS = isLiquidGlassAvailable();
 
@@ -127,7 +132,8 @@ export function Wall() {
   const [detail, setDetail] = useState<string>();
   const [watch, setWatch] = useState<HassEntity>();
   const [page, setPage] = useState(0);
-  const [idle, poke] = useIdle(IDLE_MS);
+  const night = useNight();
+  const [idle, poke] = useIdle(night ? NIGHT_IDLE_MS : IDLE_MS);
   const pager = useRef<ScrollView>(null);
   const [live, play] = useInlineLive(page === 0 && focused && !idle && !watch && !detail);
 
@@ -249,7 +255,7 @@ export function Wall() {
         backdropColor="#000"
         supportedOrientations={['portrait', 'landscape']}
         onRequestClose={poke}>
-        <ScreenSaver size={Math.min(width, height) * 0.6} onWake={poke} />
+        <ScreenSaver size={Math.min(width, height) * 0.6} night={night} onWake={poke} />
       </Modal>
 
       {creds && watch && (
@@ -482,18 +488,57 @@ function AnalogClock({ size, dark }: { size: number; dark?: boolean }) {
   );
 }
 
-function ScreenSaver({ size, onWake }: { size: number; onWake: () => void }) {
+function ScreenSaver({ size, night, onWake }: { size: number; night: boolean; onWake: () => void }) {
   const now = useNow();
   // Drift a little each minute so nothing stays burned into the same pixels.
   const drift = ((now.getMinutes() % 7) - 3) * 8;
   return (
     <Pressable accessibilityRole="button" accessibilityLabel="Show the dashboard" onPress={onWake} style={styles.saver}>
-      <View style={{ transform: [{ translateX: drift }, { translateY: -drift }], alignItems: 'center', gap: 24 }}>
+      {night && <DimScreen />}
+      <View style={{ transform: [{ translateX: drift }, { translateY: -drift }], alignItems: 'center', gap: 24, opacity: night ? 0.35 : 1 }}>
         <AnalogClock size={size} dark />
         <Text style={styles.saverDate}>{now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
       </View>
     </Pressable>
   );
+}
+
+const isNight = () => {
+  const h = new Date().getHours();
+  return h >= NIGHT_FROM || h < NIGHT_TO;
+};
+
+/** Night hours: the dashboard goes to its clock after 30 seconds instead of 3 minutes, and the clock is dim. */
+function useNight() {
+  const [night, setNight] = useState(isNight);
+  useEffect(() => {
+    const t = setInterval(() => setNight(isNight()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  return night;
+}
+
+/**
+ * The screen almost dark while it's showing; back to where it was when it goes (a tap, or the doorbell opening the
+ * camera). iOS also puts it back if the iPad locks.
+ */
+function DimScreen() {
+  useEffect(() => {
+    let gone = false;
+    let before: number | undefined;
+    Brightness.getBrightnessAsync()
+      .then((b) => {
+        if (gone) return;
+        before = b;
+        return Brightness.setBrightnessAsync(0.02);
+      })
+      .catch(() => {});
+    return () => {
+      gone = true;
+      if (before !== undefined) Brightness.setBrightnessAsync(before).catch(() => {});
+    };
+  }, []);
+  return null;
 }
 
 function SceneTile({ scene, size }: { scene: HassEntity; size: number }) {
