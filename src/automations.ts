@@ -15,7 +15,7 @@ import { rest } from '@/schedules';
 //   smarthome_motionlight_<camera>  camera motion after dark switches lights on for a few minutes
 //   smarthome_health           phone alert when a device goes offline or a battery runs low
 //   smarthome_announce         Echo announcements (Alexa Media Player) for doorbell, motion and health
-//   smarthome_camera_snapshots a new snapshot from every Blink camera every 6 hours
+//   smarthome_camera_snapshots a new snapshot from every Blink camera at 7 AM and 7 PM
 // Like schedules, they live in Home Assistant and run with the phone off.
 
 const slug = (entity: string) => entity.replace('.', '_');
@@ -257,15 +257,15 @@ export const setLeaveArm = (creds: Creds, alarm: string, name: string) =>
   });
 
 /**
- * Press every Blink camera's Refresh snapshot button every 6 hours, at 0:00, 6:00, 12:00 and 18:00 (each wakes a
+ * Press every Blink camera's Refresh snapshot button at 7:00 and 19:00 (each wakes a
  * battery camera for a moment). Found by
  * template when it runs, so a camera added later is included.
  */
 export const setSnapshots = (creds: Creds) =>
   rest(creds, 'POST', SNAPSHOTS_ID, {
-    alias: 'Camera snapshots every 6 hours',
+    alias: 'Camera snapshots at 7 AM and 7 PM',
     description: 'Created by the Smart Home app',
-    triggers: [{ trigger: 'time_pattern', hours: '/6', minutes: 0 }],
+    triggers: [{ trigger: 'time', at: ['07:00:00', '19:00:00'] }],
     conditions: [],
     actions: [
       {

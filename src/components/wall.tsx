@@ -556,7 +556,7 @@ function CameraTile({ camera, width, height, onPress }: { camera: HassEntity; wi
 
 /**
  * Every camera's snapshot; Live plays them all at once until Stop, 2 minutes, or the page being swiped away or covered.
- * "Every 6 hours" keeps the snapshots fresh with a Home Assistant automation.
+ * "7 AM and 7 PM" keeps the snapshots fresh with a Home Assistant automation.
  */
 function CameraPage({ cameras, width, active, onWatch }: {
   cameras: HassEntity[];
@@ -581,7 +581,7 @@ function CameraPage({ cameras, width, active, onWatch }: {
       <View style={styles.between}>
         <Text style={styles.heading}>Cameras</Text>
         <View style={styles.row}>
-          <Pill icon={refreshing ? 'checkmark.circle.fill' : 'clock'} label="New snapshot every 6 hours" on={refreshing} onPress={toggleSnapshots} />
+          <Pill icon={refreshing ? 'checkmark.circle.fill' : 'clock'} label="New snapshot at 7 AM and 7 PM" on={refreshing} onPress={toggleSnapshots} />
           <Pill icon={live ? 'stop.fill' : 'play.fill'} label={live ? 'Stop' : 'Live'} on={live} onPress={() => setLive(!live)} />
         </View>
       </View>
