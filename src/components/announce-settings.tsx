@@ -117,7 +117,7 @@ export function AnnounceSettings() {
             ))}
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            Every camera’s motion and every device’s problems (offline, low battery) are spoken. To leave one out, turn off
+            Every camera’s motion, every device’s problems (offline, low battery, the house too cold or hot) and who’s at the door, when Blink Vision knows them, are spoken. To leave one out, turn off
             Announce on Echo in its settings (⚙︎) or on its camera card.
           </ThemedText>
           <Row

@@ -254,7 +254,7 @@ function HealthAlerts() {
         <View style={styles.flex}>
           <ThemedText>Alert me when something needs attention</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            A device or camera offline for 5 minutes, a Blink connection dropping, a low battery, or Home Assistant restarting. To leave a device out, turn off its alert in its settings.
+            A device or camera offline for 5 minutes, a Blink connection dropping, a low battery, the house below 16° or above 28°, the furnace or AC running 2 hours without changing the temperature, or Home Assistant restarting. To leave a device out, turn off its alert in its settings.
           </ThemedText>
         </View>
         <Switch value={!!auto} disabled={!notify.length} onValueChange={toggle} />

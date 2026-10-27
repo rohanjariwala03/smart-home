@@ -384,6 +384,7 @@ export type Watched = {
   lowBattery: string[]; // battery binary sensors: alert when on
   batteryLevel: string[]; // battery % sensors: alert below 20
   blinkAuth: string[]; // the Blink proxy's poll sensor: alert when Blink signs it out
+  climate: string[]; // thermostats: too cold, too hot, or running without the temperature changing
 };
 
 // The things people own and would notice going offline (not every helper sensor).
@@ -422,8 +423,23 @@ export function watched(entities: HassEntities, devices: Record<string, Device>)
       .filter((e) => e.attributes.device_class === 'battery')
       .map((e) => e.entity_id),
     blinkAuth: [blinkPoll(entities)?.entity_id ?? []].flat(),
+    climate: byDomain(entities, 'climate').map((e) => e.entity_id),
   };
 }
+
+// ponytail: limits in °C (a °F thermostat's reading is converted); make them settings if the house runs colder.
+const COLD = 16;
+const HOT = 28;
+const CELSIUS = "{% set t = state.attributes.current_temperature | float(none) %}{{ t if t is none or state.attributes.max_temp < 40 else (t - 32) * 5 / 9 }}";
+const STUCK = 'ran 2 hours but the temperature didn’t change';
+/** Health triggers' extra check: a thermostat that ran 2 hours alerts only if the temperature moved less than half a degree. */
+const RUNNING_CHECK = {
+  condition: 'template',
+  value_template: `{% if trigger.id.endswith('${STUCK}') %}{% set was = trigger.to_state.attributes.current_temperature | float(0) %}\
+{% set cur = state_attr(trigger.entity_id, 'current_temperature') | float(0) %}\
+{{ state_attr(trigger.entity_id, 'hvac_action') == trigger.to_state.attributes.hvac_action and (cur - was if trigger.to_state.attributes.hvac_action == 'heating' else was - cur) < 0.5 }}\
+{% else %}true{% endif %}`,
+};
 
 // Trigger ids are the words after the device name ("Porch light is offline"); `tag` prefixes them.
 function healthTriggers(w: Watched, tag = '') {
@@ -434,6 +450,10 @@ function healthTriggers(w: Watched, tag = '') {
     w.lowBattery.length && { trigger: 'state', entity_id: w.lowBattery, to: 'on', id: `${tag}battery is low` },
     w.batteryLevel.length && { trigger: 'numeric_state', entity_id: w.batteryLevel, below: 20, id: `${tag}battery is low` },
     w.blinkAuth.length && { trigger: 'state', entity_id: w.blinkAuth, attribute: 'state', to: 'auth_failed', id: `${tag}blink signed out` },
+    w.climate.length && { trigger: 'numeric_state', entity_id: w.climate, value_template: CELSIUS, below: COLD, for: '00:30:00', id: `${tag}is below ${COLD}° inside` },
+    w.climate.length && { trigger: 'numeric_state', entity_id: w.climate, value_template: CELSIUS, above: HOT, for: '00:30:00', id: `${tag}is above ${HOT}° inside` },
+    // A furnace or AC that runs and runs without warming or cooling the house has likely failed.
+    w.climate.length && { trigger: 'state', entity_id: w.climate, attribute: 'hvac_action', to: ['heating', 'cooling'], for: '02:00:00', id: `${tag}${STUCK}` },
     { trigger: 'homeassistant', event: 'start', id: `${tag}restarted` },
   ].filter(Boolean);
 }
@@ -447,6 +467,7 @@ export function watchedOf(triggers: any[] = [], tag = ''): Watched {
     lowBattery: ids((t) => t.trigger === 'state' && t.id === `${tag}battery is low`),
     batteryLevel: ids((t) => t.trigger === 'numeric_state' && t.id === `${tag}battery is low`),
     blinkAuth: ids((t) => t.id === `${tag}blink signed out`),
+    climate: ids((t) => t.attribute === 'hvac_action'),
   };
 }
 
@@ -457,7 +478,7 @@ export function setHealthAlerts(creds: Creds, notify: string, w: Watched, skip: 
     description: 'Created by the Smart Home app. Re-save it in the app after adding devices.',
     triggers: healthTriggers(without(w, skip)),
     variables: { skip },
-    conditions: [],
+    conditions: [RUNNING_CHECK],
     actions: [
       {
         action: notify,
@@ -506,7 +527,20 @@ export const announceTriggers = (a: Announce, entities: HassEntities, devices: R
     .filter((c) => !a.skip?.includes(c.motion))
     .map((c) => ({ trigger: 'state', entity_id: c.motion, to: 'on', id: `${c.doorbell ? 'doorbell' : 'motion'}|${c.name}` })),
   ...healthTriggers(without(watched(entities, devices), a.skip), 'health|'),
+  // Blink Vision's detection after a doorbell press: say who it is, if it knows them.
+  ...byDomain(entities, 'event')
+    .filter((e) => e.attributes.event_types?.includes('doorbell_press') && !a.skip?.includes(e.entity_id))
+    .map((e) => ({ trigger: 'state', entity_id: e.entity_id, id: 'who|door' })),
 ];
+
+/** A detection within 2 minutes of a press, with someone Blink Vision knows; anything else isn't a "who". */
+const WHO_CHECK = {
+  condition: 'template',
+  value_template: `{% if trigger.id == 'who|door' %}{% set a = trigger.to_state.attributes %}{% set b = trigger.from_state.attributes %}\
+{{ a.event_type == 'detection' and a.people | default([]) | count > 0 and b.event_type == 'doorbell_press' \
+and as_timestamp(trigger.to_state.last_changed) - as_timestamp(trigger.from_state.last_changed) < 120 }}\
+{% else %}true{% endif %}`,
+};
 
 /** Ids and entities of `triggers`: what to compare to see if the automation is out of date. */
 export const triggerKey = (triggers: any[] = []) =>
@@ -520,7 +554,7 @@ export function setAnnounce(creds: Creds, a: Announce, entities: HassEntities, d
     triggers: announceTriggers(a, entities, devices),
     variables: { skip: a.skip ?? [] },
     // A time condition from `to` until `from` wraps past midnight when needed.
-    conditions: a.quiet ? [{ condition: 'time', after: a.quiet.to, before: a.quiet.from }] : [],
+    conditions: [...(a.quiet ? [{ condition: 'time', after: a.quiet.to, before: a.quiet.from }] : []), RUNNING_CHECK, WHO_CHECK],
     actions: [
       {
         action: 'notify.alexa_media',
@@ -537,11 +571,11 @@ export function setAnnounce(creds: Creds, a: Announce, entities: HassEntities, d
   });
 }
 
-const ANNOUNCE_MESSAGE = `{% set k = trigger.id.split('|') %}{% if k[0] == 'doorbell' %}Someone's at the {{ k[1] }}{% elif k[0] == 'motion' %}Motion at {{ k[1] }}{% elif k[1] == 'restarted' %}Home Assistant restarted{% elif k[1] == 'blink signed out' %}${BLINK_SIGNED_OUT}{% else %}{{ trigger.to_state.name }} {{ k[1] }}{% endif %}`;
+const ANNOUNCE_MESSAGE = `{% set k = trigger.id.split('|') %}{% if k[0] == 'doorbell' %}Someone's at the {{ k[1] }}{% elif k[0] == 'who' %}{% set p = trigger.to_state.attributes.people %}{{ p | join(' and ') }} {{ 'is' if p | count == 1 else 'are' }} at the door{% elif k[0] == 'motion' %}Motion at {{ k[1] }}{% elif k[1] == 'restarted' %}Home Assistant restarted{% elif k[1] == 'blink signed out' %}${BLINK_SIGNED_OUT}{% else %}{{ trigger.to_state.name }} {{ k[1] }}{% endif %}`;
 
 export function announceOf(config?: Record<string, any>): Announce | undefined {
   if (!config) return undefined;
-  const quiet = config.conditions?.[0];
+  const quiet = config.conditions?.find((c: any) => c.condition === 'time');
   return {
     echoes: [config.actions?.[0]?.data?.target ?? []].flat(),
     quiet: quiet && { from: quiet.before, to: quiet.after },
