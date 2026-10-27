@@ -1,5 +1,6 @@
 import Slider from '@react-native-community/slider';
 import { Image } from 'expo-image';
+import type { Connection } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Switch, View } from 'react-native';
 
@@ -8,12 +9,19 @@ import { Chip } from '@/components/chip';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { name, useHA } from '@/ha';
+import { name, useHA, type Creds } from '@/ha';
 import { auth } from '@/vision';
 
 type Media = { title: string; media_content_id: string; children?: Media[] };
-const ROOT = `media-source://media_source/local/${TIMELAPSE_DIR}`;
 const FPS = 10;
+
+/** What's in a folder of Home Assistant's local media, by name; nothing if it doesn't exist yet. */
+export const browse = (conn: Connection, path: string) =>
+  conn
+    .sendMessagePromise<Media>({ type: 'media_source/browse_media', media_content_id: `media-source://media_source/local/${path}` })
+    .then((r) => (r.children ?? []).sort((a, b) => a.title.localeCompare(b.title)), (): Media[] => []);
+/** A local media file's URL (needs the token header). */
+export const mediaUrl = (creds: Creds, m: Media) => `${creds.url}/media/local/${m.media_content_id.split('/local/')[1]}`;
 
 /** The noon pictures saved by the time-lapse automation, played back as a flipbook, one camera at a time. */
 export function TimelapseSheet({ onClose }: { onClose: () => void }) {
@@ -26,12 +34,9 @@ export function TimelapseSheet({ onClose }: { onClose: () => void }) {
   const [playing, setPlaying] = useState(false);
   const [note, setNote] = useState<string>();
 
-  // No folder yet (nothing saved) is an error from Home Assistant; that's just "no cameras yet".
   useEffect(() => {
-    conn
-      ?.sendMessagePromise<Media>({ type: 'media_source/browse_media', media_content_id: ROOT })
-      .then((r) => r.children ?? [], () => [])
-      .then((list) => {
+    conn &&
+      browse(conn, TIMELAPSE_DIR).then((list) => {
         setFolders(list);
         setFolder((f) => f ?? list[0]?.title);
       });
@@ -39,18 +44,12 @@ export function TimelapseSheet({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!conn || !creds || !folder) return;
-    conn.sendMessagePromise<Media>({ type: 'media_source/browse_media', media_content_id: `${ROOT}/${folder}` }).then(
-      (r) => {
-        const urls = (r.children ?? [])
-          .filter((c) => c.title.endsWith('.jpg'))
-          .sort((a, b) => a.title.localeCompare(b.title))
-          .map((c) => `${creds.url}/media/local/${c.media_content_id.split('/local/')[1]}`);
-        Image.prefetch(urls, { headers: auth(creds) });
-        setFrames(urls);
-        setAt(urls.length - 1);
-      },
-      () => setFrames([]),
-    );
+    browse(conn, `${TIMELAPSE_DIR}/${folder}`).then((list) => {
+      const urls = list.filter((c) => c.title.endsWith('.jpg')).map((c) => mediaUrl(creds, c));
+      Image.prefetch(urls, { headers: auth(creds) });
+      setFrames(urls);
+      setAt(urls.length - 1);
+    });
   }, [conn, creds, folder]);
 
   useEffect(() => {

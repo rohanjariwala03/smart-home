@@ -7,6 +7,7 @@ import { Chip } from '@/components/chip';
 import { active, allDevices, domainOf, GAP, ICONS, Tile, tileWidth } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { FavouritesSheet } from '@/components/favourites-sheet';
+import { HalloweenCard, halloweenSeason } from '@/components/halloween';
 import { Card, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThermostatCard } from '@/components/thermostat';
@@ -44,6 +45,7 @@ function HomeScreen() {
       subtitle={on ? `${on} ${on === 1 ? 'device' : 'devices'} on` : 'Everything is off'}
       action={<Chip icon="star" label="Edit" onPress={() => setEditing(true)} />}>
       {thermostat && <ThermostatCard entity={thermostat} onPress={() => setDetail(thermostat.entity_id)} />}
+      {halloweenSeason() && <HalloweenCard />}
 
       {favourites && pinned.length === 0 && (
         <Card>

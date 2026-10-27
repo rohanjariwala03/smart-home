@@ -25,6 +25,7 @@ import { removeAutomation, setSnapshots, SNAPSHOTS_ID, useAutomation } from '@/a
 import { degrees, roomReadings } from '@/climate';
 import { active as isActive, allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
+import { HalloweenBoard, useHalloweenBoard } from '@/components/halloween';
 import { ThermostatCard } from '@/components/thermostat';
 import { LiveTile } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
@@ -133,7 +134,9 @@ export function Wall() {
   const [watch, setWatch] = useState<HassEntity>();
   const [page, setPage] = useState(0);
   const night = useNight();
-  const [idle, poke] = useIdle(night ? NIGHT_IDLE_MS : IDLE_MS);
+  const halloween = useHalloweenBoard();
+  // Halloween night stays on the board (setTimeout's longest wait is about 24 days).
+  const [idle, poke] = useIdle(halloween ? 2 ** 31 - 1 : night ? NIGHT_IDLE_MS : IDLE_MS);
   const pager = useRef<ScrollView>(null);
   const [live, play] = useInlineLive(page === 0 && focused && !idle && !watch && !detail);
 
@@ -225,6 +228,7 @@ export function Wall() {
                 <Pill icon="power" label="All off" on={false} onPress={() => call('homeassistant', 'turn_off', { entity_id: on.map((e) => e.entity_id) })} />
               )}
             </View>
+            {halloween && <HalloweenBoard width={span(cols)} height={cell} />}
             <View style={styles.row}>
               <WeatherTile size={span(2)} />
               <View style={[styles.flow, { width: span(cols - 2) }]}>{beside < 0 ? tiles : tiles.slice(0, beside)}</View>

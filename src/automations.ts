@@ -18,6 +18,8 @@ import { rest } from '@/schedules';
 //   smarthome_camera_snapshots a new snapshot from every Blink camera at 7 AM and 7 PM
 //   smarthome_timelapse        a noon snapshot from every camera saved to /media/timelapse, for the time-lapse
 //   smarthome_welcome          Blink Vision sees someone at the door it knows: their light colour and greeting
+//   smarthome_halloween        Oct 31 evening: motion at the chosen cameras flickers lights, plays a spooky sound, counts
+//   smarthome_halloween_photos   …saves each new picture from those cameras; smarthome_halloween_recap: Nov 1 summary
 // Like schedules, they live in Home Assistant and run with the phone off.
 
 const slug = (entity: string) => entity.replace('.', '_');
@@ -35,6 +37,9 @@ export const ANNOUNCE_ID = 'smarthome_announce';
 export const SNAPSHOTS_ID = 'smarthome_camera_snapshots';
 export const TIMELAPSE_ID = 'smarthome_timelapse';
 export const WELCOME_ID = 'smarthome_welcome';
+export const HALLOWEEN_ID = 'smarthome_halloween';
+export const HALLOWEEN_PHOTOS_ID = 'smarthome_halloween_photos';
+export const HALLOWEEN_RECAP_ID = 'smarthome_halloween_recap';
 
 /**
  * Blink Instant Events' "last Blink refresh" sensor; its `state` attribute is "auth_failed" once Blink signs it out.
@@ -397,6 +402,121 @@ and now().timestamp() - as_timestamp(this.attributes.last_triggered, 0) > 600 }}
 }
 
 export const welcomeOf = (config?: Record<string, any>): Welcome | undefined => config?.variables?.welcome;
+
+// Halloween night is Oct 31, 4–11 PM. The tally (an input_text helper) is "<date>|" and a count per 10 minutes from 4 PM:
+// 42 numbers, so it fits the helper's 255 characters, and last year's is ignored by its date.
+export const HALLOWEEN_TALLY = 'input_text.halloween_tally';
+export const HALLOWEEN_DIR = 'halloween';
+const FROM = 16 * 60;
+const SLOTS = 42;
+const TONIGHT = "{{ now().month == 10 and now().day == 31 and 16 <= now().hour < 23 }}";
+const BUMP = `{% set today = now().strftime('%Y-%m-%d') %}{% set s = states('${HALLOWEEN_TALLY}') %}\
+{% set n = s.split('|')[1].split(',') | map('int') | list if s.startswith(today ~ '|') else [0] * ${SLOTS} %}\
+{% set i = [[((now().hour * 60 + now().minute) - ${FROM}) // 10, 0] | max, ${SLOTS - 1}] | min %}\
+{% set ns = namespace(out=[]) %}{% for v in n %}{% set ns.out = ns.out + [v + (1 if loop.index0 == i else 0)] %}{% endfor %}\
+{{ today }}|{{ ns.out | join(',') }}`;
+const RECAP = `{% set s = states('${HALLOWEEN_TALLY}') %}{% set day = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}\
+{% set n = s.split('|')[1].split(',') | map('int') | list if s.startswith(day ~ '|') else [] %}{% set total = n | sum %}\
+{% if total == 0 %}No trick-or-treaters came by last night.{% else %}{% set m = ${FROM} + 10 * n.index(n | max) %}\
+{{ total }} group{{ 's' if total != 1 }} of trick-or-treaters last night, busiest at {{ m // 60 - 12 }}:{{ '%02d' % (m % 60) }} PM.{% endif %}`;
+
+/** Tonight's (or, the morning after, last night's) groups from the tally, and the busiest 10 minutes as "6:40 PM". */
+export function tallyOf(state?: string, now = new Date()) {
+  const [day, counts] = (state ?? '').split('|');
+  if (!counts || day !== `${now.getFullYear()}-10-31`) return { total: 0 };
+  const n = counts.split(',').map(Number);
+  const total = n.reduce((a, b) => a + b, 0);
+  const m = FROM + 10 * n.indexOf(Math.max(...n));
+  return { total, busiest: total ? `${Math.floor(m / 60) - 12}:${String(m % 60).padStart(2, '0')} PM` : undefined };
+}
+
+export const HALLOWEEN_SOUNDS = [
+  ['horror_10', 'Haunted door'],
+  ['squeaky_12', 'Creaky door'],
+  ['amzn_sfx_wolf_howl_02', 'Wolf howl'],
+] as const;
+const LINES = ['Happy Halloween!', 'Trick or treat!', 'Take one… if you dare.', 'Welcome, little monsters.'];
+
+export type Halloween = {
+  cameras: string[]; // snapshot cameras; their motion sensors start a visit
+  lights: string[];
+  echo?: string; // Alexa Media Player speaker (the porch one)
+  sounds: string[];
+  say: boolean; // a spoken line after the sound
+  notify?: string; // the morning-after recap
+};
+
+/** The tally helper, if it isn't there yet (admin only, like the automations). */
+export async function ensureTally(conn: Connection, entities: HassEntities) {
+  if (entities[HALLOWEEN_TALLY]) return;
+  await conn.sendMessagePromise({ type: 'input_text/create', name: 'Halloween tally', max: 255 });
+}
+
+/**
+ * A visit: count it (only on the night itself; "Try it" just plays), flicker the lights orange and purple and put them
+ * back, play a random sound and line on the Echo. Then 45 s before the next, so one group on the path counts once.
+ */
+export async function setHalloween(creds: Creds, h: Halloween, entities: HassEntities) {
+  const motions = h.cameras.map((c) => `binary_sensor.${c.split('.')[1]}_motion`).filter((m) => entities[m]);
+  const colour = (rgb: number[]) => ({ action: 'light.turn_on', target: { entity_id: h.lights }, data: { rgb_color: rgb, brightness_pct: 100 } });
+  const lights = h.lights.length && {
+    sequence: [
+      { action: 'scene.create', data: { scene_id: 'halloween_before', snapshot_entities: h.lights } },
+      { repeat: { count: 5, sequence: [colour([255, 90, 0]), { delay: { milliseconds: 300 } }, colour([150, 0, 255]), { delay: { milliseconds: 300 } }] } },
+      { action: 'scene.turn_on', target: { entity_id: 'scene.halloween_before' } },
+    ],
+  };
+  const sound = h.echo && {
+    sequence: [
+      ...(h.sounds.length
+        ? [{ action: 'media_player.play_media', target: { entity_id: h.echo }, data: { media_content_type: 'sound', media_content_id: '{{ halloween.sounds | random }}' } }]
+        : []),
+      ...(h.say ? [{ delay: { seconds: 3 } }, { action: 'notify.alexa_media', data: { message: `{{ ${JSON.stringify(LINES)} | random }}`, target: [h.echo], data: { type: 'tts' } } }] : []),
+    ],
+  };
+  await rest(creds, 'POST', HALLOWEEN_ID, {
+    alias: 'Halloween: trick-or-treaters',
+    description: 'Created by the Smart Home app. Runs on Oct 31 from 4 to 11 PM; comes back next year.',
+    triggers: [{ trigger: 'state', entity_id: motions, to: 'on' }],
+    variables: { halloween: h },
+    conditions: [{ condition: 'template', value_template: TONIGHT }],
+    actions: [
+      { if: [{ condition: 'template', value_template: TONIGHT }], then: [{ action: 'input_text.set_value', target: { entity_id: HALLOWEEN_TALLY }, data: { value: BUMP } }] },
+      ...([lights, sound].some(Boolean) ? [{ parallel: [lights, sound].filter(Boolean) }] : []),
+      { delay: { seconds: 45 } }, // ponytail: one visit per 45 s; two groups closer than that count once
+    ],
+    mode: 'single',
+    max_exceeded: 'silent',
+  });
+  await rest(creds, 'POST', HALLOWEEN_PHOTOS_ID, {
+    alias: 'Halloween: a picture of each group',
+    description: 'Created by the Smart Home app. Pictures are in Media › My media › halloween.',
+    triggers: [{ trigger: 'state', entity_id: h.cameras, attribute: 'snapshot_id' }],
+    conditions: [{ condition: 'template', value_template: TONIGHT }],
+    actions: [
+      {
+        action: 'camera.snapshot',
+        target: { entity_id: '{{ trigger.entity_id }}' },
+        data: { filename: `/media/${HALLOWEEN_DIR}/{{ now().strftime('%Y-%m-%d') }}/{{ now().strftime('%H-%M-%S') }}.jpg` },
+      },
+    ],
+    mode: 'parallel',
+  });
+  if (h.notify)
+    await rest(creds, 'POST', HALLOWEEN_RECAP_ID, {
+      alias: 'Halloween: the morning-after recap',
+      description: 'Created by the Smart Home app',
+      triggers: [{ trigger: 'time', at: '09:00:00' }],
+      conditions: [{ condition: 'template', value_template: '{{ now().month == 11 and now().day == 1 }}' }],
+      actions: [{ action: h.notify, data: { title: 'Halloween', message: RECAP } }],
+      mode: 'single',
+    });
+}
+
+export const removeHalloween = (creds: Creds) =>
+  Promise.all([HALLOWEEN_ID, HALLOWEEN_PHOTOS_ID, HALLOWEEN_RECAP_ID].map((id) => removeAutomation(creds, id).catch(() => {})));
+
+export const halloweenOf = (config?: Record<string, any>): Halloween | undefined => config?.variables?.halloween;
 
 /** Disarm when the first person gets home. */
 export const setArriveDisarm = (creds: Creds, alarm: string, name: string) =>
