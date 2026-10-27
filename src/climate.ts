@@ -48,6 +48,7 @@ export function climateLook(e: HassEntity) {
     rgb: cooling ? COOL : HEAT,
     icon,
     current: a.current_temperature as number | undefined,
+    doing,
     /** "Heating to 21.5°", "Idle · 21.5°", "Off" */
     state: target ? `${doing}${working ? ' to' : ' ·'} ${target}` : doing,
   };

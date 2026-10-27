@@ -100,6 +100,7 @@ export function useDevice(entity: HassEntity) {
 export function Tile({ entity, width, onSettings }: { entity: HassEntity; width: number; onSettings: () => void }) {
   const theme = useTheme();
   const { off, isOn, state, timer, rgb: [r, g, b], icon, toggle: flip } = useDevice(entity);
+  const reading: number | undefined = domainOf(entity) === 'climate' && !off ? entity.attributes.current_temperature : undefined;
 
   const progress = useSharedValue(isOn ? 1 : 0);
   const pop = useSharedValue(1);
@@ -140,11 +141,16 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
         hitSlop={8}
         onPress={flip ? toggle : onSettings}>
         <Animated.View style={[styles.icon, iconStyle, off && styles.dim]}>
-          <SymbolView
-            name={icon}
-            size={18}
-            tintColor={isOn ? `rgb(${r},${g},${b})` : theme.textSecondary}
-          />
+          {reading != null ? (
+            // A thermostat shows the temperature instead of an icon.
+            <ThemedText style={[styles.reading, { color: isOn ? `rgb(${r},${g},${b})` : theme.text }]}>{Math.round(reading)}°</ThemedText>
+          ) : (
+            <SymbolView
+              name={icon}
+              size={18}
+              tintColor={isOn ? `rgb(${r},${g},${b})` : theme.textSecondary}
+            />
+          )}
         </Animated.View>
       </Pressable>
       <View style={styles.text}>
@@ -162,6 +168,7 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
 
 const styles = StyleSheet.create({
   tile: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 14, paddingHorizontal: 12, minHeight: 64 },
+  reading: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
   icon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   text: { flex: 1 },
   tileName: { fontWeight: '600', lineHeight: 18 },

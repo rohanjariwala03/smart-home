@@ -9,10 +9,11 @@ import { DeviceSheet } from '@/components/device-sheet';
 import { FavouritesSheet } from '@/components/favourites-sheet';
 import { Card, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
+import { ThermostatCard } from '@/components/thermostat';
 import { greeting, useWallDashboard, Wall } from '@/components/wall';
 import { Spacing } from '@/constants/theme';
 import { useFavourites } from '@/favourites';
-import { name, useHA } from '@/ha';
+import { byDomain, name, useHA } from '@/ha';
 import { runScene } from '@/scenes';
 
 // An iPad gets the wall dashboard (unless it's turned off in Settings); the phone always gets its favourites list.
@@ -21,7 +22,8 @@ export default function Home() {
   return wall ? <Wall /> : <HomeScreen />;
 }
 
-// Only what you've starred: cameras, scenes and devices. Everything else is on the Devices and Cameras tabs.
+// The thermostat, then only what you've starred: cameras, scenes and devices. Everything else is on the Devices and
+// Cameras tabs.
 function HomeScreen() {
   const { conn, entities, devices: registry } = useHA();
   const { favourites } = useFavourites();
@@ -33,13 +35,16 @@ function HomeScreen() {
   const pinned = (favourites ?? []).flatMap((id) => (entities[id] ? [entities[id]] : []));
   const cameras = pinned.filter((e) => e.attributes.snapshot_of).map((e) => e.entity_id);
   const scenes = pinned.filter((e) => ['scene', 'script'].includes(domainOf(e)));
-  const devices = pinned.filter((e) => !e.attributes.snapshot_of && !scenes.includes(e));
+  const thermostat = byDomain(entities, 'climate')[0];
+  const devices = pinned.filter((e) => !e.attributes.snapshot_of && !scenes.includes(e) && e !== thermostat);
 
   return (
     <Screen
       title={greeting()}
       subtitle={on ? `${on} ${on === 1 ? 'device' : 'devices'} on` : 'Everything is off'}
       action={<Chip icon="star" label="Edit" onPress={() => setEditing(true)} />}>
+      {thermostat && <ThermostatCard entity={thermostat} onPress={() => setDetail(thermostat.entity_id)} />}
+
       {favourites && pinned.length === 0 && (
         <Card>
           <ThemedText type="smallBold">Pin what you use most</ThemedText>

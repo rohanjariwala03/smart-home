@@ -24,6 +24,7 @@ import { removeAutomation, setSnapshots, SNAPSHOTS_ID, useAutomation } from '@/a
 import { degrees, roomReadings } from '@/climate';
 import { active as isActive, allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
+import { ThermostatCard } from '@/components/thermostat';
 import { LiveTile } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
 import { Card } from '@/components/screen';
@@ -141,9 +142,9 @@ export function Wall() {
   const none = !pinned.length;
   const cameras = none ? allCameras : pinned.filter((e) => e.attributes.snapshot_of);
   const scenes = none ? byDomain(entities, 'scene', 'script') : pinned.filter(isScene);
-  const devices = none ? allDevices(entities, registry) : pinned.filter((e) => !e.attributes.snapshot_of && !isScene(e));
   const alarms = byDomain(entities, 'alarm_control_panel');
   const thermostat = byDomain(entities, 'climate')[0];
+  const devices = (none ? allDevices(entities, registry) : pinned.filter((e) => !e.attributes.snapshot_of && !isScene(e))).filter((e) => e !== thermostat);
   const rooms = Object.entries(roomReadings(entities, registry, areas))
     .filter(([, r]) => r.temperature !== undefined)
     .sort(([a], [b]) => a.localeCompare(b));
@@ -161,9 +162,10 @@ export function Wall() {
   const cell = Math.floor(landscape ? Math.min(byWidth, (height - 220 - GAP * 2) / 3) : byWidth);
   const span = (n: number) => cell * n + GAP * (n - 1);
   const tiles = [
+    ...(thermostat ? [<ThermostatCard key="thermostat" entity={thermostat} width={span(2)} height={cell} onPress={() => setDetail(thermostat.entity_id)} />] : []),
     <ClockTile key="clock" size={cell} />,
     ...alarms.map((a) => <SecurityTile key={a.entity_id} alarm={a} size={cell} />),
-    ...(rooms.length > 1 ? [<RoomsTile key="rooms" rooms={rooms} size={cell} onPress={thermostat ? () => setDetail(thermostat.entity_id) : undefined} />] : []),
+    ...(!thermostat && rooms.length > 1 ? [<RoomsTile key="rooms" rooms={rooms} size={cell} />] : []),
     ...cameras.map((c) => (
       <CameraTile
         key={c.entity_id}
@@ -178,7 +180,9 @@ export function Wall() {
     ...scenes.map((s) => <SceneTile key={s.entity_id} scene={s} size={cell} />),
     ...devices.map((d) => <DeviceTile key={d.entity_id} entity={d} size={cell} onLongPress={() => setDetail(d.entity_id)} />),
   ];
-  const beside = (cols - 2) * 2;
+  // As many tiles as fill the two rows beside the weather (the thermostat is two wide).
+  let room = (cols - 2) * 2;
+  const beside = tiles.findIndex((t) => (room -= t.key === 'thermostat' ? 2 : 1) < 0);
   const goTo = (i: number) => {
     pager.current?.scrollTo({ x: i * width });
     setPage(i);
@@ -217,9 +221,9 @@ export function Wall() {
             </View>
             <View style={styles.row}>
               <WeatherTile size={span(2)} />
-              <View style={[styles.flow, { width: span(cols - 2) }]}>{tiles.slice(0, beside)}</View>
+              <View style={[styles.flow, { width: span(cols - 2) }]}>{beside < 0 ? tiles : tiles.slice(0, beside)}</View>
             </View>
-            <View style={styles.flow}>{tiles.slice(beside)}</View>
+            {beside >= 0 && <View style={styles.flow}>{tiles.slice(beside)}</View>}
           </ScrollView>
           <CameraPage cameras={allCameras} width={width} active={page === 1 && focused && !idle && !watch && !detail} onWatch={setWatch} />
         </ScrollView>
@@ -743,14 +747,10 @@ function SecurityTile({ alarm, size }: { alarm: HassEntity; size: number }) {
   );
 }
 
-/** Each room's temperature, and a green dot where someone is; tap for the thermostat. */
-function RoomsTile({ rooms, size, onPress }: {
-  rooms: [string, { temperature?: number; occupied?: boolean }][];
-  size: number;
-  onPress?: () => void;
-}) {
+/** Each room's temperature, and a green dot where someone is (when there's no thermostat to show them). */
+function RoomsTile({ rooms, size }: { rooms: [string, { temperature?: number; occupied?: boolean }][]; size: number }) {
   return (
-    <Glass width={size} label={`Rooms: ${rooms.map(([room, r]) => `${room} ${degrees(r.temperature)}`).join(', ')}`} hint="Opens the thermostat" onPress={onPress}>
+    <Glass width={size} label={`Rooms: ${rooms.map(([room, r]) => `${room} ${degrees(r.temperature)}`).join(', ')}`}>
       <Text style={styles.small}>Rooms</Text>
       <View style={styles.rooms}>
         {rooms.slice(0, 5).map(([room, r]) => (
