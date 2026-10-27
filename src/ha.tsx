@@ -241,7 +241,7 @@ export const playerOn = (e: HassEntity) => !['off', 'standby', 'unavailable', 'u
  * Lights and switches people control. A switch on a camera, speaker, TV, light or fan is one of its settings (Blink's
  * motion detection, an Echo's Do Not Disturb, a Govee light's music mode), not a device of its own.
  */
-/** Devices with a main entity (camera, speaker/TV, light, fan): their switches are settings, not devices. */
+/** Devices with a main entity (camera, speaker/TV, light, fan, thermostat): their switches are settings, not devices. */
 export const parentDevices = (entities: HassEntities, devices: Record<string, Device>) =>
   new Set(Object.keys(entities).flatMap((id) => (/^(camera|media_player|light|fan|climate)\./.test(id) && devices[id] ? [devices[id].id] : [])));
 
