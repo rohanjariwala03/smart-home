@@ -2,19 +2,31 @@ import * as Haptics from 'expo-haptics';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import type { HassEntity } from 'home-assistant-js-websocket';
 import { useEffect, useRef, useState } from 'react';
-import { ActionSheetIOS, findNodeHandle, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { climateLook, climateRooms, degrees, HVAC_MODE } from '@/climate';
 import { name, unavailable, useHA } from '@/ha';
 
 // The thermostat the way the Ecobee app shows it: a big reading on a dark card, the set point as a bubble you drag
-// up and down a rail (heat and cool bubbles in Auto), and round buttons for mode, fan and comfort setting.
+// up and down a rail (heat and cool bubbles in Heat/Cool), big − / + buttons for each set point, and one-tap buttons
+// for mode, fan and comfort setting.
 
 const HEAT = '#FF8A3D';
 const COOL = '#409CFF';
 const RAIL = 300;
 const BUBBLE = 56;
+
+const MODE_LOOK: Record<string, { icon: SFSymbol; color: string }> = {
+  off: { icon: 'power', color: '#8E8E93' },
+  heat: { icon: 'flame.fill', color: HEAT },
+  cool: { icon: 'snowflake', color: COOL },
+  heat_cool: { icon: 'arrow.up.arrow.down', color: '#B48CFF' },
+  auto: { icon: 'arrow.up.arrow.down', color: '#B48CFF' },
+  dry: { icon: 'humidity.fill', color: COOL },
+  fan_only: { icon: 'fan.fill', color: '#FFFFFF' },
+};
+const PRESET_ICON: Record<string, SFSymbol> = { home: 'house.fill', away: 'figure.walk', sleep: 'moon.fill' };
 
 type Key = 'temperature' | 'target_temp_low' | 'target_temp_high';
 type Targets = Partial<Record<Key, number>>;
@@ -27,8 +39,9 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
   const step: number = a.target_temp_step ?? (fahrenheit ? 1 : 0.5);
   const range = a.temperature == null && a.target_temp_low != null;
   const off = entity.state === 'off' || unavailable(entity);
+  const gap = range ? (fahrenheit ? 3 : 1.5) : 0; // heat stays this far below cool
 
-  // What you've dragged to, until Home Assistant reports it back.
+  // What you've set, until Home Assistant reports it back.
   const [pending, setPending] = useState<Targets>();
   const send = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(send.current), []);
@@ -41,13 +54,28 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
       call('climate', 'set_temperature', { entity_id: entity.entity_id, ...data }).finally(() => setPending(undefined));
     }, wait);
   };
+  const move = (key: Key, v: number, wait?: number) => {
+    const next: Targets = { ...shown, [key]: Math.min(a.max_temp, Math.max(a.min_temp, Math.round(v / step) * step)) };
+    if (key === 'target_temp_low' && next.target_temp_high != null) next.target_temp_low = Math.min(next.target_temp_low!, next.target_temp_high - gap);
+    if (key === 'target_temp_high' && next.target_temp_low != null) next.target_temp_high = Math.max(next.target_temp_high!, next.target_temp_low + gap);
+    if (next[key] === shown[key]) return;
+    Haptics.selectionAsync();
+    set(next, wait);
+  };
 
+  const keys: Key[] = range ? ['target_temp_low', 'target_temp_high'] : ['temperature'];
+  const colors = range ? [HEAT, COOL] : [entity.state === 'cool' ? COOL : HEAT];
+  const labels = range ? ['Heat to', 'Cool to'] : [entity.state === 'cool' ? 'Cool to' : entity.state === 'heat' ? 'Heat to' : 'Set to'];
   const accent = look.working ? `rgb(${look.rgb.join()})` : '#FFFFFF';
   const rooms = climateRooms(entity, entities, devices, areas);
   const modes: string[] = a.hvac_modes ?? [];
   const fans: string[] = a.fan_modes ?? [];
   const presets: string[] = a.preset_modes ?? [];
-  const modeName = (m: string) => (m === 'heat_cool' && modes.includes('auto') ? 'Heat/Cool' : (HVAC_MODE[m] ?? words(m)));
+  const details = [
+    !unavailable(entity) && look.doing !== HVAC_MODE[entity.state] && (HVAC_MODE[entity.state] ?? words(entity.state)), // the mode, unless it's the line above
+    a.current_humidity != null && `${Math.round(a.current_humidity)}% humidity`,
+    a.preset_mode && words(a.preset_mode),
+  ].filter(Boolean);
 
   return (
     <View style={styles.gap}>
@@ -61,61 +89,63 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
           <Text style={styles.now} numberOfLines={1} accessibilityLabel={`Inside ${degrees(look.current)}`}>
             {degrees(look.current)}
           </Text>
-          <View style={styles.status}>
-            {a.current_humidity != null && (
-              <>
-                <SymbolView name="humidity.fill" size={14} tintColor={DIM} />
-                <Text style={styles.small}>{Math.round(a.current_humidity)}%</Text>
-              </>
-            )}
-            {a.preset_mode && <Text style={styles.small}>{a.current_humidity != null ? '  ·  ' : ''}{words(a.preset_mode)}</Text>}
-          </View>
+          <Text style={styles.small}>{details.join('  ·  ')}</Text>
         </View>
         {!off && (
           <SetPointRail
             values={shown}
-            keys={range ? ['target_temp_low', 'target_temp_high'] : ['temperature']}
-            colors={range ? [HEAT, COOL] : [entity.state === 'cool' ? COOL : HEAT]}
+            keys={keys}
+            colors={colors}
+            labels={labels}
             current={look.current}
             min={a.min_temp}
             max={a.max_temp}
             step={step}
-            gap={range ? (fahrenheit ? 3 : 1.5) : 0}
             span={fahrenheit ? 24 : 12}
-            onChange={set}
+            onMove={move}
+            onRelease={() => set(shown, 300)}
           />
         )}
       </View>
 
-      <View style={styles.buttons}>
-        {modes.length > 0 && (
-          <RoundButton
-            icon="power"
-            title="Mode"
-            value={modeName(entity.state)}
-            options={modes.map(modeName)}
-            onPick={(i) => call('climate', 'set_hvac_mode', { entity_id: entity.entity_id, hvac_mode: modes[i] })}
-          />
-        )}
-        {fans.length > 0 && (
-          <RoundButton
-            icon="fan.fill"
-            title="Fan"
-            value={words(a.fan_mode ?? '–')}
-            options={fans.map(words)}
-            onPick={(i) => call('climate', 'set_fan_mode', { entity_id: entity.entity_id, fan_mode: fans[i] })}
-          />
-        )}
-        {presets.length > 0 && (
-          <RoundButton
-            icon="house.fill"
-            title="Comfort"
-            value={a.preset_mode ? words(a.preset_mode) : 'None'}
-            options={presets.map(words)}
-            onPick={(i) => call('climate', 'set_preset_mode', { entity_id: entity.entity_id, preset_mode: presets[i] })}
-          />
-        )}
-      </View>
+      {!off && (
+        <View style={styles.panel}>
+          {keys.map((k, i) => (
+            <View key={k} style={styles.setRow}>
+              <View style={[styles.swatch, { backgroundColor: colors[i] }]} />
+              <Text style={styles.setLabel}>{labels[i]}</Text>
+              <StepButton icon="minus" label={`${labels[i]}, lower`} onPress={() => move(k, (shown[k] ?? a.min_temp) - step)} />
+              <Text style={styles.setValue}>{degrees(shown[k])}</Text>
+              <StepButton icon="plus" label={`${labels[i]}, higher`} onPress={() => move(k, (shown[k] ?? a.min_temp) + step)} />
+            </View>
+          ))}
+        </View>
+      )}
+
+      {modes.length > 0 && (
+        <Segments
+          title="Mode"
+          value={entity.state}
+          options={modes.map((m) => ({ key: m, label: HVAC_MODE[m] ?? words(m), ...(MODE_LOOK[m] ?? { icon: 'thermometer.medium', color: '#FFFFFF' }) }))}
+          onPick={(m) => call('climate', 'set_hvac_mode', { entity_id: entity.entity_id, hvac_mode: m })}
+        />
+      )}
+      {fans.length > 0 && (
+        <Segments
+          title="Fan"
+          value={a.fan_mode}
+          options={fans.map((f) => ({ key: f, label: words(f), icon: f === 'auto' ? 'fan' : 'fan.fill', color: '#5AC8FA' }))}
+          onPick={(f) => call('climate', 'set_fan_mode', { entity_id: entity.entity_id, fan_mode: f })}
+        />
+      )}
+      {presets.length > 0 && (
+        <Segments
+          title="Comfort setting"
+          value={a.preset_mode}
+          options={presets.map((p) => ({ key: p, label: words(p), icon: PRESET_ICON[p] ?? 'sparkles', color: '#30D158' }))}
+          onPick={(p) => call('climate', 'set_preset_mode', { entity_id: entity.entity_id, preset_mode: p })}
+        />
+      )}
 
       {rooms.length > 1 && (
         <View style={styles.sensors}>
@@ -130,6 +160,52 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
           ))}
         </View>
       )}
+    </View>
+  );
+}
+
+function StepButton({ icon, label, onPress }: { icon: 'minus' | 'plus'; label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={6} onPress={onPress} style={({ pressed }) => [styles.step, pressed && styles.stepPressed]}>
+      <SymbolView name={icon} size={22} weight="semibold" tintColor="#FFFFFF" />
+    </Pressable>
+  );
+}
+
+/** One tap picks; the choice lights up straight away, before Home Assistant confirms it. */
+function Segments({ title, value, options, onPick }: {
+  title: string;
+  value?: string;
+  options: { key: string; label: string; icon: SFSymbol; color: string }[];
+  onPick: (key: string) => Promise<unknown>;
+}) {
+  const [picked, setPicked] = useState<string>();
+  const current = picked ?? value;
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.panelTitle}>{title}</Text>
+      <View style={styles.segments}>
+        {options.map((o) => {
+          const on = o.key === current;
+          return (
+            <Pressable
+              key={o.key}
+              accessibilityRole="button"
+              accessibilityLabel={o.label}
+              accessibilityState={{ selected: on }}
+              onPress={() => {
+                if (on) return;
+                Haptics.selectionAsync();
+                setPicked(o.key);
+                onPick(o.key).finally(() => setPicked(undefined));
+              }}
+              style={({ pressed }) => [styles.segment, on && { backgroundColor: `${o.color}33`, borderColor: o.color }, pressed && styles.pressed]}>
+              <SymbolView name={o.icon} size={20} tintColor={on ? o.color : DIM} />
+              <Text style={[styles.segmentText, on && styles.segmentOn]} numberOfLines={1}>{o.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -190,17 +266,18 @@ export function ThermostatCard({ entity, width, height, onPress }: { entity: Has
  * The set points as bubbles on a vertical rail: drag a bubble (or anywhere on the rail; the nearest bubble moves).
  * The rail shows `span` degrees around the reading, fixed while you drag, so a step is a comfortable distance.
  */
-function SetPointRail({ values, keys, colors, current, min, max, step, gap, span, onChange }: {
+function SetPointRail({ values, keys, colors, labels, current, min, max, step, span, onMove, onRelease }: {
   values: Targets;
   keys: Key[];
   colors: string[];
+  labels: string[];
   current?: number;
   min: number;
   max: number;
   step: number;
-  gap: number;
   span: number;
-  onChange: (next: Targets, wait?: number) => void;
+  onMove: (key: Key, v: number) => void;
+  onRelease: () => void;
 }) {
   const points = keys.map((k) => values[k] ?? min);
   const middle = (Math.min(...points, current ?? Infinity) + Math.max(...points, current ?? -Infinity)) / 2;
@@ -209,16 +286,6 @@ function SetPointRail({ values, keys, colors, current, min, max, step, gap, span
   const [drag, setDrag] = useState<{ low: number; high: number; key: Key; from: number }>();
   const view = drag ?? fresh;
   const y = (v: number) => RAIL * (1 - (v - view.low) / (view.high - view.low));
-
-  const move = (key: Key, v: number, wait?: number) => {
-    const next: Targets = { ...values, [key]: Math.min(max, Math.max(min, v)) };
-    // Heat stays below cool by the thermostat's dead band.
-    if (key === 'target_temp_low' && next.target_temp_high != null) next.target_temp_low = Math.min(next.target_temp_low!, next.target_temp_high - gap);
-    if (key === 'target_temp_high' && next.target_temp_low != null) next.target_temp_high = Math.max(next.target_temp_high!, next.target_temp_low + gap);
-    if (next[key] === values[key]) return;
-    Haptics.selectionAsync();
-    onChange(next, wait);
-  };
 
   // Takes the touch straight away (so the sheet doesn't scroll or close instead), and moves the bubble by as much as
   // the finger moves: touching the rail alone changes nothing.
@@ -229,8 +296,8 @@ function SetPointRail({ values, keys, colors, current, min, max, step, gap, span
       const nearest = keys.reduce((best, k) => (Math.abs(y(values[k] ?? min) - e.y) < Math.abs(y(values[best] ?? min) - e.y) ? k : best));
       setDrag({ ...fresh, key: nearest, from: values[nearest] ?? min });
     })
-    .onUpdate((e) => drag && move(drag.key, Math.round((drag.from - (e.translationY / RAIL) * (drag.high - drag.low)) / step) * step))
-    .onEnd(() => drag && values[drag.key] !== drag.from && onChange(values, 300))
+    .onUpdate((e) => drag && onMove(drag.key, drag.from - (e.translationY / RAIL) * (drag.high - drag.low)))
+    .onEnd(() => drag && values[drag.key] !== drag.from && onRelease())
     .onFinalize(() => setDrag(undefined));
 
   return (
@@ -246,10 +313,10 @@ function SetPointRail({ values, keys, colors, current, min, max, step, gap, span
               key={k}
               accessible
               accessibilityRole="adjustable"
-              accessibilityLabel={keys.length > 1 ? (i === 0 ? 'Heat to' : 'Cool to') : 'Set to'}
+              accessibilityLabel={labels[i]}
               accessibilityValue={{ text: degrees(values[k]) }}
               accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-              onAccessibilityAction={(e) => move(k, (values[k] ?? min) + (e.nativeEvent.actionName === 'increment' ? step : -step))}
+              onAccessibilityAction={(e) => onMove(k, (values[k] ?? min) + (e.nativeEvent.actionName === 'increment' ? step : -step))}
               style={[styles.bubble, { backgroundColor: colors[i], top: Math.max(0, Math.min(RAIL, y(values[k] ?? min))) - BUBBLE / 2 }]}>
               <Text style={styles.bubbleText}>{Math.round((values[k] ?? min) * 10) / 10}</Text>
             </View>
@@ -257,38 +324,6 @@ function SetPointRail({ values, keys, colors, current, min, max, step, gap, span
         </View>
       </GestureDetector>
     </GestureHandlerRootView>
-  );
-}
-
-function RoundButton({ icon, title, value, options, onPick }: {
-  icon: SFSymbol;
-  title: string;
-  value: string;
-  options: string[];
-  onPick: (i: number) => void;
-}) {
-  const ref = useRef<View>(null);
-  const open = () => {
-    Haptics.selectionAsync();
-    ActionSheetIOS.showActionSheetWithOptions(
-      // Anchored so it shows as a popover from the button on iPad.
-      { title, options: [...options, 'Cancel'], cancelButtonIndex: options.length, anchor: findNodeHandle(ref.current) ?? undefined },
-      (i) => i < options.length && onPick(i),
-    );
-  };
-  return (
-    <Pressable
-      ref={ref}
-      accessibilityRole="button"
-      accessibilityLabel={`${title}, ${value}`}
-      onPress={open}
-      style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
-      <View style={styles.round}>
-        <SymbolView name={icon} size={22} tintColor="#FFFFFF" />
-      </View>
-      <Text style={styles.buttonTitle}>{title}</Text>
-      <Text style={styles.small} numberOfLines={1}>{value}</Text>
-    </Pressable>
   );
 }
 
@@ -331,11 +366,30 @@ const styles = StyleSheet.create({
     boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
   },
   bubbleText: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  buttons: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: NAVY, borderRadius: 24, borderCurve: 'continuous', paddingVertical: 16 },
-  button: { alignItems: 'center', gap: 4, minWidth: 88 },
   pressed: { opacity: 0.6 },
-  round: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#FFFFFF1F', alignItems: 'center', justifyContent: 'center' },
-  buttonTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  panel: { backgroundColor: NAVY, borderRadius: 24, borderCurve: 'continuous', padding: 16, gap: 12 },
+  panelTitle: { color: DIM, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  setRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  swatch: { width: 10, height: 10, borderRadius: 5 },
+  setLabel: { flex: 1, color: '#FFFFFF', fontSize: 17, fontWeight: '600' },
+  setValue: { minWidth: 76, textAlign: 'center', color: '#FFFFFF', fontSize: 34, fontWeight: '300', fontVariant: ['tabular-nums'] },
+  step: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#FFFFFF1F', alignItems: 'center', justifyContent: 'center' },
+  stepPressed: { backgroundColor: '#FFFFFF40', transform: [{ scale: 0.94 }] },
+  segments: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  segment: {
+    flexGrow: 1,
+    flexBasis: 72,
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    backgroundColor: '#FFFFFF0F',
+  },
+  segmentText: { color: DIM, fontSize: 13, fontWeight: '600' },
+  segmentOn: { color: '#FFFFFF' },
   sensors: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   sensor: { flexGrow: 1, flexBasis: 140, backgroundColor: NAVY, borderRadius: 20, borderCurve: 'continuous', padding: 16, gap: 4 },
   sensorName: { color: DIM, fontSize: 14, fontWeight: '600', flexShrink: 1 },

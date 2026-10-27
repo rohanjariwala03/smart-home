@@ -9,7 +9,7 @@ export const HVAC_MODE: Record<string, string> = {
   off: 'Off',
   heat: 'Heat',
   cool: 'Cool',
-  heat_cool: 'Auto',
+  heat_cool: 'Heat/Cool', // what Ecobee calls it
   auto: 'Auto',
   dry: 'Dry',
   fan_only: 'Fan',
