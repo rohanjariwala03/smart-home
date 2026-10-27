@@ -2,15 +2,18 @@ import type { HassEntities, HassEntity } from 'home-assistant-js-websocket';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Image, Linking, Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import {
   alertId,
   BLINK_REAUTH,
+  blinkPoll,
   blinkSignedOut,
+  blinkUnreachable,
   motionLightId,
   SIGN_IN_AGAIN,
   removeAutomation,
+  retryBlink,
   setAlert,
   SMART_KINDS,
   smartOf,
@@ -93,6 +96,7 @@ export default function CamerasScreen() {
           )}
         </Card>
       )}
+      {!blinkSignedOut(entities) && blinkUnreachable(entities) && <BlinkRetryCard />}
       {cameras.length === 0 && (
         <ThemedText type="small" themeColor="textSecondary">
           No cameras yet. Add Blink in Settings → Add by brand.
@@ -308,6 +312,32 @@ function Camera({ entity, notify, vision, onClips }: {
           onClose={() => setWatching(false)}
         />
       )}
+    </Card>
+  );
+}
+
+/** Home Assistant lost Blink and is waiting to try again; Retry now reloads the integration instead of waiting. */
+function BlinkRetryCard() {
+  const { conn, creds, entities } = useHA();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    if (!conn || !creds) return;
+    setBusy(true);
+    await retryBlink(conn, creds).catch((e) => Alert.alert('Could not retry Blink', e?.message ?? String(e)));
+    setBusy(false);
+  };
+  const wait = Math.round((blinkPoll(entities)?.attributes.interval ?? 0) / 60);
+
+  return (
+    <Card>
+      <ThemedText type="smallBold" style={styles.error}>Can’t reach Blink</ThemedText>
+      <ThemedText type="small">
+        Home Assistant lost its connection to Blink{wait > 5 ? ` and tries again every ${wait} minutes` : ''}. Retry now once
+        the internet is back.
+      </ThemedText>
+      <View style={styles.actions}>
+        <Chip icon="arrow.clockwise" label={busy ? 'Retrying…' : 'Retry now'} disabled={busy} onPress={retry} />
+      </View>
     </Card>
   );
 }

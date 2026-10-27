@@ -18,11 +18,6 @@ import { Alert, AppState } from 'react-native';
 
 export type Creds = { url: string; token: string };
 
-// Blink Live View Proxy's entities. Blink Instant Events replaced it; while both are installed the app shows only the
-// new one's (otherwise every camera, alarm and sensor would show twice). Delete once the proxy is uninstalled.
-const OLD_BLINK = /^[a-z_]+\.(blink_proxy_|blink_liveview_proxy|blink_live_view_proxy|blink_\w+_blink_live_)/;
-const withoutOldBlink = (all: HassEntities) =>
-  Object.fromEntries(Object.entries(all).filter(([id]) => !OLD_BLINK.test(id))) as HassEntities;
 export type Status = 'loading' | 'no-config' | 'connecting' | 'ready' | 'disconnected' | 'error';
 
 type HA = {
@@ -142,7 +137,7 @@ export function HAProvider({ children }: { children: ReactNode }) {
         });
         connection.addEventListener('disconnected', () => setLive('disconnected'));
         connection.addEventListener('reconnect-error', () => setLive('error'));
-        unsub = subscribeEntities(connection, (all) => setEntities(withoutOldBlink(all)));
+        unsub = subscribeEntities(connection, (all) => setEntities(all));
         setError(undefined);
         setLive('ready');
         setConn(connection);

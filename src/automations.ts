@@ -1,4 +1,4 @@
-import { getServices, type HassEntities } from 'home-assistant-js-websocket';
+import { getServices, type Connection, type HassEntities } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
 
 import { byDomain, parentDevices, players, useHA, type Creds, type Device } from '@/ha';
@@ -42,6 +42,30 @@ export const blinkSignedOut = (entities: HassEntities) => blinkPoll(entities)?.a
 const BLINK_SIGNED_OUT = 'Blink signed out. Sign in again in Home Assistant';
 export const SIGN_IN_AGAIN =
   'Blink signed Home Assistant out, so cameras show as offline. Sign in again: in Home Assistant open Settings › Devices & services › Blink Instant Events › Re-authenticate and enter the code Blink texts you. The cameras come back by themselves.';
+/**
+ * Blink Instant Events can't reach Blink (network or Blink down): polling is backing off (up to an hour), push is
+ * disconnected (up to 30 minutes), or the integration itself is waiting to set up again.
+ */
+export const blinkUnreachable = (entities: HassEntities) => {
+  const poll = blinkPoll(entities);
+  const push = Object.values(entities).find(
+    (e) => e.entity_id.startsWith('binary_sensor.') && e.entity_id.endsWith('blink_instant_events_push_connection'),
+  );
+  return !!poll && (poll.attributes.state === 'backoff' || poll.state === 'unavailable' || push?.state === 'off');
+};
+/** Reload Blink Instant Events now instead of waiting out its backoff; retries polling and push together. */
+export async function retryBlink(conn: Connection, creds: Creds) {
+  const [entry] = await conn.sendMessagePromise<{ entry_id: string }[]>({
+    type: 'config_entries/get',
+    domain: 'blink_instant_events',
+  });
+  if (!entry) throw new Error('Blink Instant Events is not set up in Home Assistant');
+  const res = await fetch(`${creds.url}/api/config/config_entries/entry/${entry.entry_id}/reload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${creds.token}` },
+  });
+  if (!res.ok) throw new Error(`Home Assistant returned ${res.status}`);
+}
 /** Where to sign Blink in again. */
 export const BLINK_REAUTH = '/config/integrations/integration/blink_instant_events';
 
