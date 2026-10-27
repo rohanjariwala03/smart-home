@@ -1,12 +1,14 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
+import { removeAutomation, setWelcome, useAutomation, useAutomationConfig, welcomeOf, WELCOME_ID, type Welcome } from '@/automations';
 import { Chip } from '@/components/chip';
+import { SWATCHES } from '@/components/device-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { useHA } from '@/ha';
+import { isEcho, name as nameOf, players, switchables, useHA } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 import { addPhotos, auth, faceUrl, removePerson, usePeople } from '@/vision';
 
@@ -123,6 +125,7 @@ export function PeopleSheet({ onClose }: { onClose: () => void }) {
                   />
                 )}
               </View>
+              {!!people?.length && <WelcomeCard names={people.map((p) => p.name)} />}
             </>
           )}
           {[error, ...problems].filter(Boolean).map((p) => (
@@ -136,6 +139,103 @@ export function PeopleSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Someone Blink Vision knows at the door: lights in their colour, and their greeting on the Echoes. */
+function WelcomeCard({ names }: { names: string[] }) {
+  const { creds, entities, devices } = useHA();
+  const theme = useTheme();
+  const auto = useAutomation(WELCOME_ID);
+  const saved = welcomeOf(useAutomationConfig(WELCOME_ID));
+  const [draft, setDraft] = useState<Welcome>();
+  const [note, setNote] = useState<string>();
+  if (!creds) return null;
+
+  const echoes = players(entities, devices).filter(isEcho);
+  const w: Welcome = draft ?? saved ?? { people: {}, lights: [], echoes: echoes.map((e) => e.entity_id), darkOnly: true };
+  const save = (next: Welcome) => {
+    setDraft(next);
+    setNote(undefined);
+    (Object.keys(next.people).length ? setWelcome(creds, next, entities) : auto && removeAutomation(creds, WELCOME_ID))?.catch(
+      (e) => setNote(e?.message ?? String(e)),
+    );
+  };
+  const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  const person = (who: string, on: boolean) => {
+    const { [who]: _, ...rest } = w.people;
+    save({ ...w, people: on ? { ...w.people, [who]: { rgb: SWATCHES[names.indexOf(who) % SWATCHES.length], say: `Welcome home, ${who}.` } } : rest });
+  };
+
+  return (
+    <View style={[styles.welcome, { backgroundColor: theme.backgroundElement }]}>
+      <ThemedText style={styles.bold}>Welcome home</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        When the doorbell camera recognises someone, the lights below turn their colour and the Echoes greet them. Once
+        every 10 minutes at most.
+      </ThemedText>
+      {names.map((who) => {
+        const p = w.people[who];
+        return (
+          <View key={who} style={styles.greet}>
+            <View style={styles.row}>
+              <ThemedText style={styles.flex}>{who}</ThemedText>
+              <Switch value={!!p} onValueChange={(on) => person(who, on)} />
+            </View>
+            {p && (
+              <>
+                <View style={styles.row}>
+                  {SWATCHES.map((rgb) => (
+                    <Pressable
+                      key={rgb.join()}
+                      accessibilityLabel={`${who}'s colour: rgb ${rgb.join(' ')}`}
+                      accessibilityState={{ selected: rgb.join() === p.rgb.join() }}
+                      onPress={() => save({ ...w, people: { ...w.people, [who]: { ...p, rgb } } })}
+                      style={[styles.swatch, { backgroundColor: `rgb(${rgb.join()})` }, rgb.join() === p.rgb.join() && { borderColor: theme.text, borderWidth: 3 }]}
+                    />
+                  ))}
+                </View>
+                <TextInput
+                  defaultValue={p.say}
+                  onEndEditing={(e) => {
+                    const say = e.nativeEvent.text.trim();
+                    if (say && say !== p.say) save({ ...w, people: { ...w.people, [who]: { ...p, say } } });
+                  }}
+                  placeholder="What the Echo says"
+                  placeholderTextColor={theme.textSecondary}
+                  style={[styles.input, styles.field, { color: theme.text, borderColor: theme.textSecondary }]}
+                />
+              </>
+            )}
+          </View>
+        );
+      })}
+      {Object.keys(w.people).length > 0 && (
+        <>
+          <ThemedText type="small" themeColor="textSecondary">Lights</ThemedText>
+          <View style={styles.wrap}>
+            {switchables(entities, devices).map((e) => (
+              <Chip key={e.entity_id} label={nameOf(e)} selected={w.lights.includes(e.entity_id)} onPress={() => save({ ...w, lights: toggle(w.lights, e.entity_id) })} />
+            ))}
+          </View>
+          <View style={styles.row}>
+            <ThemedText style={styles.flex}>Lights only after dark</ThemedText>
+            <Switch value={w.darkOnly} onValueChange={(darkOnly) => save({ ...w, darkOnly })} />
+          </View>
+          {echoes.length > 0 && (
+            <>
+              <ThemedText type="small" themeColor="textSecondary">Greet on</ThemedText>
+              <View style={styles.wrap}>
+                {echoes.map((e) => (
+                  <Chip key={e.entity_id} icon="homepod.fill" label={nameOf(e)} selected={w.echoes.includes(e.entity_id)} onPress={() => save({ ...w, echoes: toggle(w.echoes, e.entity_id) })} />
+                ))}
+              </View>
+            </>
+          )}
+        </>
+      )}
+      {note && <ThemedText type="small" style={styles.error}>{note}</ThemedText>}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', padding: Spacing.three },
@@ -145,4 +245,10 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '600' },
   input: { fontSize: 16, paddingVertical: 8 },
   error: { color: '#E5484D' },
+  welcome: { padding: Spacing.three, borderRadius: 14, gap: Spacing.two, marginTop: Spacing.two },
+  greet: { gap: Spacing.two },
+  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: Spacing.two },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  swatch: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: '#8888' },
+  field: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: 10 },
 });

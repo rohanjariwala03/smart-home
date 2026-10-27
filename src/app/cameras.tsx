@@ -31,6 +31,7 @@ import { DeviceSheet, stateText } from '@/components/device-sheet';
 import { LiveGrid } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
 import { PeopleSheet } from '@/components/people-sheet';
+import { TimelapseSheet } from '@/components/timelapse';
 import { Card, Disclosure, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -53,6 +54,7 @@ export default function CamerasScreen() {
   const [clips, setClips] = useState<string | true>(); // camera slug, or true for all
   const [clip, setClip] = useState<Clip>(); // opened from Today
   const [peopleOpen, setPeopleOpen] = useState(false);
+  const [timelapse, setTimelapse] = useState(false);
   const vision = usePeople().people != null; // Blink Vision is running
   const [grid, setGrid] = useState(false);
   const [detail, setDetail] = useState<string>();
@@ -82,6 +84,7 @@ export default function CamerasScreen() {
             <Chip icon="square.grid.2x2.fill" label="Live" onPress={() => setGrid(true)} />
             <Chip icon="film.stack" label="Clips" onPress={() => setClips(true)} />
             <Chip icon="person.2.fill" label="People" onPress={() => setPeopleOpen(true)} />
+            <Chip icon="timelapse" label="Time-lapse" onPress={() => setTimelapse(true)} />
           </View>
         )
       }>
@@ -170,6 +173,7 @@ export default function CamerasScreen() {
       {clips && <ClipsSheet camera={clips === true ? undefined : clips} onClose={() => setClips(undefined)} />}
       {clip && <ClipsSheet initial={clip} onClose={() => setClip(undefined)} />}
       {peopleOpen && <PeopleSheet onClose={() => setPeopleOpen(false)} />}
+      {timelapse && <TimelapseSheet onClose={() => setTimelapse(false)} />}
       <View style={styles.chips}>
         <Chip icon="arrow.up.forward.app" label="Open Blink app" onPress={() => Linking.openURL(BLINK_APP_STORE)} />
       </View>

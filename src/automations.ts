@@ -16,6 +16,8 @@ import { rest } from '@/schedules';
 //   smarthome_health           phone alert when a device goes offline or a battery runs low
 //   smarthome_announce         Echo announcements (Alexa Media Player) for doorbell, motion and health
 //   smarthome_camera_snapshots a new snapshot from every Blink camera at 7 AM and 7 PM
+//   smarthome_timelapse        a noon snapshot from every camera saved to /media/timelapse, for the time-lapse
+//   smarthome_welcome          Blink Vision sees someone at the door it knows: their light colour and greeting
 // Like schedules, they live in Home Assistant and run with the phone off.
 
 const slug = (entity: string) => entity.replace('.', '_');
@@ -31,6 +33,8 @@ export const doorbellTvId = (camera: string) => `smarthome_doorbelltv_${slug(cam
 export const HEALTH_ID = 'smarthome_health';
 export const ANNOUNCE_ID = 'smarthome_announce';
 export const SNAPSHOTS_ID = 'smarthome_camera_snapshots';
+export const TIMELAPSE_ID = 'smarthome_timelapse';
+export const WELCOME_ID = 'smarthome_welcome';
 
 /**
  * Blink Instant Events' "last Blink refresh" sensor; its `state` attribute is "auth_failed" once Blink signs it out.
@@ -302,6 +306,97 @@ export const setSnapshots = (creds: Creds) =>
     ],
     mode: 'single',
   });
+
+/** Where the time-lapse frames go: Home Assistant's local media (/media on Home Assistant OS), one folder per camera. */
+export const TIMELAPSE_DIR = 'timelapse';
+
+/**
+ * Every day at noon (same light all year), wake each Blink camera for a new snapshot, then save every snapshot
+ * camera's picture as /media/timelapse/<camera>/<date>.jpg.
+ */
+export const setTimelapse = (creds: Creds) =>
+  rest(creds, 'POST', TIMELAPSE_ID, {
+    alias: 'Camera time-lapse: a picture every day at noon',
+    description: 'Created by the Smart Home app. Pictures are in Media › My media › timelapse.',
+    triggers: [{ trigger: 'time', at: '12:00:00' }],
+    conditions: [],
+    actions: [
+      {
+        action: 'button.press',
+        target: {
+          entity_id:
+            "{{ integration_entities('blink_instant_events') | select('match', 'button[.]') | select('search', '_refresh_snapshot$') | list }}",
+        },
+        continue_on_error: true,
+      },
+      { delay: { seconds: 60 } }, // ponytail: fixed wait for the battery cameras to wake and upload
+      {
+        repeat: {
+          for_each: "{{ states.camera | selectattr('attributes.snapshot_of', 'defined') | map(attribute='entity_id') | list }}",
+          sequence: [
+            {
+              action: 'camera.snapshot',
+              target: { entity_id: '{{ repeat.item }}' },
+              data: { filename: `/media/${TIMELAPSE_DIR}/{{ repeat.item.split('.')[1] }}/{{ now().strftime('%Y-%m-%d') }}.jpg` },
+              continue_on_error: true,
+            },
+          ],
+        },
+      },
+    ],
+    mode: 'single',
+  });
+
+export type Welcome = {
+  people: Record<string, { rgb: [number, number, number]; say: string }>;
+  lights: string[];
+  echoes: string[];
+  darkOnly: boolean; // lights only after dark; the greeting is always spoken
+};
+
+/**
+ * Blink Vision recognises someone in `w.people` at a doorbell: the lights go to the first one's colour (switches just
+ * turn on) and the Echoes say each one's greeting. Once per 10 minutes, so walking in and out doesn't repeat it.
+ */
+export function setWelcome(creds: Creds, w: Welcome, entities: HassEntities) {
+  const doorbells = byDomain(entities, 'event').filter((e) => e.attributes.event_types?.includes('doorbell_press'));
+  const colour = w.lights.filter((id) => entities[id]?.attributes.supported_color_modes?.some((m: string) => ['hs', 'rgb', 'rgbw', 'rgbww', 'xy'].includes(m)));
+  const plain = w.lights.filter((id) => !colour.includes(id));
+  const lights = [
+    colour.length && { action: 'light.turn_on', target: { entity_id: colour }, data: { rgb_color: '{{ welcome.people[who[0]].rgb }}', brightness_pct: 100 } },
+    plain.length && { action: 'homeassistant.turn_on', target: { entity_id: plain } },
+  ].filter(Boolean);
+  return rest(creds, 'POST', WELCOME_ID, {
+    alias: 'Welcome home',
+    description: 'Created by the Smart Home app (Cameras › People). Needs Blink Vision.',
+    triggers: doorbells.map((e) => ({ trigger: 'state', entity_id: e.entity_id })),
+    variables: { welcome: w },
+    conditions: [
+      {
+        condition: 'template',
+        value_template:
+          "{% set a = trigger.to_state.attributes %}{{ a.event_type == 'detection' and a.people | default([]) | select('in', welcome.people) | list | count > 0 \
+and now().timestamp() - as_timestamp(this.attributes.last_triggered, 0) > 600 }}",
+      },
+    ],
+    actions: [
+      { variables: { who: "{{ trigger.to_state.attributes.people | select('in', welcome.people) | list }}" } },
+      ...(w.darkOnly && lights.length ? [{ if: [{ condition: 'state', entity_id: 'sun.sun', state: 'below_horizon' }], then: lights }] : lights),
+      ...(w.echoes.length
+        ? [
+            {
+              action: 'notify.alexa_media',
+              data: { message: "{% for p in who %}{{ welcome.people[p].say }} {% endfor %}", target: w.echoes, data: { type: 'announce' } },
+              continue_on_error: true,
+            },
+          ]
+        : []),
+    ],
+    mode: 'single',
+  });
+}
+
+export const welcomeOf = (config?: Record<string, any>): Welcome | undefined => config?.variables?.welcome;
 
 /** Disarm when the first person gets home. */
 export const setArriveDisarm = (creds: Creds, alarm: string, name: string) =>
