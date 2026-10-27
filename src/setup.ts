@@ -101,12 +101,12 @@ export function useDiscovered() {
     if (!conn) return;
     let cancelled = false;
     let unsub: (() => Promise<void>) | undefined;
-    // ponytail: flows removed while disconnected linger until the app restarts; clear on resubscribe if it matters.
     conn
       .subscribeMessage<{ type: 'added' | 'removed' | null; flow_id: string; flow?: Flow }[]>(
         (events) =>
           setFound((prev) => {
-            const next = { ...prev };
+            // Each (re)subscribe starts with the full list (type null), so flows gone during a disconnect or HA restart drop out.
+            const next = events.every((e) => e.type === null) ? {} : { ...prev };
             for (const e of events) {
               if (e.type === 'removed' || !e.flow) delete next[e.flow_id];
               else next[e.flow_id] = e.flow;

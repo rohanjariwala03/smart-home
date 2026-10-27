@@ -2,6 +2,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Button,
   FlatList,
   Modal,
@@ -71,7 +72,13 @@ export function DiscoveredList({ onSetUp }: { onSetUp: (flowId: string) => void 
           <ThemedText style={styles.flex} numberOfLines={2}>
             {title}
           </ThemedText>
-          <Button title="Ignore" color="#888" onPress={() => conn && ignoreFlow(conn, flow.flow_id, title)} />
+          <Button
+            title="Ignore"
+            color="#888"
+            onPress={() =>
+              conn && ignoreFlow(conn, flow.flow_id, title).catch((e) => Alert.alert('Could not ignore', e?.message ?? String(e)))
+            }
+          />
           <Button title="Set up" onPress={() => onSetUp(flow.flow_id)} />
         </View>
       ))}
