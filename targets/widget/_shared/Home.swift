@@ -241,7 +241,8 @@ struct HAClimate: Decodable {
 }
 
 /// One decimal (21.5°), whole numbers without one (21°).
-func deg(_ v: Double?) -> String { v.map { "\($0.formatted(.number.precision(.fractionLength(0...1))))°" } ?? "–" }
+/// To the nearest half degree, like the Ecobee app (and the app's `degrees`).
+func deg(_ v: Double?) -> String { v.map { "\((($0 * 2).rounded() / 2).formatted(.number.precision(.fractionLength(0...1))))°" } ?? "–" }
 
 extension HA {
   /// The first thermostat. Picked out of the raw list, so other entities' attributes don't have to decode.

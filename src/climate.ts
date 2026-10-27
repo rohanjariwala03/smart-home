@@ -27,8 +27,8 @@ const HVAC_ACTION: Record<string, string> = {
 const HEAT = [255, 138, 61];
 const COOL = [64, 156, 255];
 
-/** One decimal (21.5°), whole numbers without one (21°). */
-export const degrees = (n?: number | null) => (n == null ? '–' : `${Math.round(n * 10) / 10}°`);
+/** To the nearest half degree, like the Ecobee app: 22.8 → 23°, 24.9 → 25°, 22.6 → 22.5°. */
+export const degrees = (n?: number | null) => (n == null ? '–' : `${Math.round(n * 2) / 2}°`);
 
 /** What the thermostat is doing right now, for a tile: working (heating or cooling) glows. */
 export function climateLook(e: HassEntity) {
