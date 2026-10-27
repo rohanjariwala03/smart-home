@@ -106,7 +106,10 @@ enum HA {
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
       req.httpBody = try JSONSerialization.data(withJSONObject: body)
     }
-    let (data, res) = try await URLSession.shared.data(for: req)
+    // Not the URLError itself: it carries the network path, which App Intents can't send back to iOS, and the app
+    // aborts (seen on launch while Home Assistant was unreachable).
+    let data: Data, res: URLResponse
+    do { (data, res) = try await URLSession.shared.data(for: req) } catch { throw HAError.http(0) }
     let code = (res as? HTTPURLResponse)?.statusCode ?? 0
     if code == 401, path.hasPrefix("/api/config/") { throw HAError.adminOnly }
     guard code == 200 else { throw HAError.http(code) }

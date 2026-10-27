@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 
+import { climateLook } from '@/climate';
 import { until, useTimer } from '@/components/device-extras';
 import { VACUUM_STATE } from '@/components/device-sheet';
 import { ThemedText } from '@/components/themed-text';
@@ -23,6 +24,7 @@ export const ICONS: Record<string, SFSymbol> = {
   script: 'play.fill',
   vacuum: 'robotic.vacuum.fill',
   media_player: 'tv.fill',
+  climate: 'thermometer.medium',
 };
 export const GAP = 12;
 const AMBER: number[] = [255, 179, 0];
@@ -32,9 +34,14 @@ export const domainOf = (e: HassEntity) => e.entity_id.split('.')[0];
 /** On, for counting and "All off": a TV that's playing or idle counts too; an Echo never does. */
 export const active = (e: HassEntity) => e.state === 'on' || (domainOf(e) === 'media_player' && !isEcho(e) && playerOn(e));
 
-/** Everything the app can switch, by name. Switches that belong to a camera (Blink motion detection) live on the Cameras tab instead. */
+/**
+ * Everything the app can control, by name. Switches that belong to a camera (Blink motion detection) live on the
+ * Cameras tab, and a thermostat's settings switches (Ecobee's Mute, AirPlay) in its sheet.
+ */
 export const allDevices = (entities: HassEntities, registry: Record<string, Device>) =>
-  [...switchables(entities, registry), ...byDomain(entities, 'vacuum'), ...players(entities, registry)].sort((a, b) => name(a).localeCompare(name(b)));
+  [...switchables(entities, registry), ...byDomain(entities, 'vacuum', 'climate'), ...players(entities, registry)].sort((a, b) =>
+    name(a).localeCompare(name(b)),
+  );
 
 /** Two tiles per row, edge to edge inside the screen padding. */
 export const tileWidth = (screenWidth: number) => (screenWidth - Spacing.three * 2 - GAP) / 2;
@@ -42,7 +49,10 @@ export const tileWidth = (screenWidth: number) => (screenWidth - Spacing.three *
 // The colour a device glows in when on (a light uses its own colour).
 const TINT: Record<string, number[]> = { fan: [0, 188, 212], vacuum: [43, 182, 115], media_player: [124, 131, 253] };
 
-/** What a device tile shows and does: on or off (the tapped position until HA confirms), its state line, colour and icon. */
+/**
+ * What a device tile shows and does: on or off (the tapped position until HA confirms), its state line, colour and
+ * icon. A thermostat has no on/off tap (`toggle` is undefined): it glows while heating or cooling and opens its sheet.
+ */
 export function useDevice(entity: HassEntity) {
   const { call } = useHA();
   const { end } = useTimer(entity.entity_id);
@@ -63,6 +73,10 @@ export function useDevice(entity: HassEntity) {
     : brightness ? `${Math.round(brightness / 2.55)}%`
     : 'On';
   const timer = end ? ` · ⏱ ${until(end)}` : '';
+  if (domainOf(entity) === 'climate') {
+    const look = climateLook(entity);
+    return { off, isOn: !off && look.working, state: off ? 'Unavailable' : look.state, timer, rgb: look.rgb, icon: look.icon, toggle: undefined };
+  }
 
   const toggle = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -108,7 +122,7 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
 
   const toggle = () => {
     tapped.current = true;
-    flip();
+    flip?.();
   };
 
   return (
@@ -120,11 +134,11 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
       style={({ pressed }) => [styles.tile, { width, backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
       <Pressable
         disabled={off}
-        accessibilityRole="switch"
+        accessibilityRole={flip ? 'switch' : 'button'}
         accessibilityLabel={name(entity)}
-        accessibilityState={{ checked: isOn, disabled: off }}
+        accessibilityState={flip ? { checked: isOn, disabled: off } : { disabled: off }}
         hitSlop={8}
-        onPress={toggle}>
+        onPress={flip ? toggle : onSettings}>
         <Animated.View style={[styles.icon, iconStyle, off && styles.dim]}>
           <SymbolView
             name={icon}

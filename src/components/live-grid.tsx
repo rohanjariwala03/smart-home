@@ -65,10 +65,11 @@ export function LiveGrid({ creds, cameras, onClose }: { creds: Creds; cameras: G
 }
 
 /** One live camera (also the iPad dashboard's camera page). */
-export function LiveTile({ creds, camera, width, maxHeight, hidden, focused, onPress }: {
+export function LiveTile({ creds, camera, width, height, maxHeight, hidden, focused, onPress }: {
   creds: Creds;
   camera: GridCamera;
   width: number;
+  height?: number; // 16:9 by default
   maxHeight?: number;
   hidden: boolean;
   focused: boolean;
@@ -97,7 +98,7 @@ export function LiveTile({ creds, camera, width, maxHeight, hidden, focused, onP
   };
 
   // Hidden tiles stay mounted so their streams keep running behind the focused one.
-  const h = Math.min((width * 9) / 16, maxHeight ?? Infinity);
+  const h = height ?? Math.min((width * 9) / 16, maxHeight ?? Infinity);
   return (
     <Pressable
       accessibilityRole="button"

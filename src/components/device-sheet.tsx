@@ -1,6 +1,10 @@
 import Slider from '@react-native-community/slider';
+import { SymbolView } from 'expo-symbols';
 import type { HassEntity } from 'home-assistant-js-websocket';
+import { useEffect, useRef, useState } from 'react';
 import { ActionSheetIOS, Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+
+import { climateLook, climateRooms, degrees, HVAC_MODE } from '@/climate';
 
 import { AlertRows } from '@/components/announce-settings';
 import { useRemoveDevice } from '@/components/remove-devices';
@@ -15,6 +19,7 @@ import { armStatus, Toggle } from '@/components/toggle';
 import { Spacing } from '@/constants/theme';
 import { deviceName, isEcho, name, playerOn, unavailable, useHA, type Device } from '@/ha';
 import { GoveeCard } from '@/govee';
+import { useTheme } from '@/hooks/use-theme';
 
 const COLOR_MODES = ['hs', 'rgb', 'rgbw', 'rgbww', 'xy'];
 export const SWATCHES: [number, number, number][] = [
@@ -84,6 +89,8 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
             <VacuumControls entity={entity} />
           ) : domain === 'media_player' ? (
             <MediaControls entity={entity} />
+          ) : domain === 'climate' ? (
+            <ClimateControls entity={entity} />
           ) : domain === 'alarm_control_panel' ? (
             <Card dim={unavailable(entity)}>
               <Toggle
@@ -107,7 +114,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
 
           {(SWITCHABLE.includes(domain) || (domain === 'media_player' && !isEcho(entity))) && <TimerCard entity={entity} />}
 
-          <ScheduleCard entity={entity} />
+          {domain !== 'climate' && <ScheduleCard entity={entity} />}
 
           {(SWITCHABLE.includes(domain) || (domain === 'media_player' && !isEcho(entity))) && <FollowCard entity={entity} />}
 
@@ -121,7 +128,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
 
           {SWITCHABLE.includes(domain) && <AwayCard entity={entity} />}
 
-          {domain !== 'alarm_control_panel' && <ActivityCard entity={entity} />}
+          {!['alarm_control_panel', 'climate'].includes(domain) && <ActivityCard entity={entity} />}
 
           {others.length > 0 && (
             <Card>
@@ -324,6 +331,146 @@ function MediaControls({ entity }: { entity: HassEntity }) {
   );
 }
 
+/**
+ * A thermostat: the room's temperature, − / + for the target (sent once you stop tapping), mode and fan, and every
+ * room sensor's reading. In Auto it keeps the room between a heat-to and a cool-to temperature.
+ */
+function ClimateControls({ entity }: { entity: HassEntity }) {
+  const { entities, devices, areas, call } = useHA();
+  const theme = useTheme();
+  const a = entity.attributes;
+  const look = climateLook(entity);
+  const step: number = a.target_temp_step ?? (a.max_temp > 40 ? 1 : 0.5); // whole degrees in Fahrenheit
+  const range = a.temperature == null && a.target_temp_low != null;
+  // What you've tapped to, until Home Assistant reports it back.
+  const [pending, setPending] = useState<{ temperature?: number; target_temp_low?: number; target_temp_high?: number }>();
+  const send = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(send.current), []);
+  const shown = { temperature: a.temperature, target_temp_low: a.target_temp_low, target_temp_high: a.target_temp_high, ...pending };
+  const nudge = (key: 'temperature' | 'target_temp_low' | 'target_temp_high', by: number) => {
+    const next = { ...shown, [key]: Math.min(a.max_temp, Math.max(a.min_temp, Math.round(((shown[key] ?? a.min_temp) + by) / step) * step)) };
+    setPending(next);
+    clearTimeout(send.current);
+    send.current = setTimeout(() => {
+      const data = range ? { target_temp_low: next.target_temp_low, target_temp_high: next.target_temp_high } : { temperature: next.temperature };
+      call('climate', 'set_temperature', { entity_id: entity.entity_id, ...data }).finally(() => setPending(undefined));
+    }, 900);
+  };
+  const rooms = climateRooms(entity, entities, devices, areas);
+  const modes: string[] = a.hvac_modes ?? [];
+  const fans: string[] = a.fan_modes ?? [];
+  const presets: string[] = a.preset_modes ?? [];
+  const target = (key: 'temperature' | 'target_temp_low' | 'target_temp_high', label: string) => (
+    <View style={styles.row}>
+      <ThemedText style={styles.flex}>{label}</ThemedText>
+      <Stepper label={`${label} lower`} icon="minus" onPress={() => nudge(key, -step)} />
+      <ThemedText type="subtitle" style={styles.target}>{degrees(shown[key])}</ThemedText>
+      <Stepper label={`${label} higher`} icon="plus" onPress={() => nudge(key, step)} />
+    </View>
+  );
+
+  return (
+    <>
+      <Card dim={unavailable(entity)}>
+        <View style={styles.row}>
+          <View>
+            <ThemedText style={styles.now}>{degrees(look.current)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Inside{a.current_humidity != null ? ` · ${Math.round(a.current_humidity)}% humidity` : ''}
+            </ThemedText>
+          </View>
+          <View style={styles.action}>
+            <SymbolView name={look.icon} size={22} tintColor={look.working ? `rgb(${look.rgb.join()})` : theme.textSecondary} />
+            <ThemedText type="smallBold" style={look.working && { color: `rgb(${look.rgb.join()})` }}>
+              {look.state.split(/ to | · /)[0]}
+            </ThemedText>
+          </View>
+        </View>
+        {entity.state !== 'off' && !unavailable(entity) && (
+          <View style={styles.section}>
+            {range ? (
+              <>
+                {target('target_temp_low', 'Heat to')}
+                {target('target_temp_high', 'Cool to')}
+              </>
+            ) : (
+              target('temperature', entity.state === 'cool' ? 'Cool to' : 'Heat to')
+            )}
+          </View>
+        )}
+      </Card>
+
+      {modes.length > 0 && (
+        <Card>
+          <ThemedText>Mode</ThemedText>
+          <View style={styles.wrap}>
+            {modes.map((m) => (
+              <Chip key={m} label={m === 'heat_cool' && modes.includes('auto') ? 'Heat/Cool' : (HVAC_MODE[m] ?? m)} selected={entity.state === m} onPress={() => call('climate', 'set_hvac_mode', { entity_id: entity.entity_id, hvac_mode: m })} />
+            ))}
+          </View>
+          {fans.length > 0 && (
+            <>
+              <ThemedText>Fan</ThemedText>
+              <View style={styles.wrap}>
+                {fans.map((f) => (
+                  <Chip key={f} label={words(f)} selected={a.fan_mode === f} onPress={() => call('climate', 'set_fan_mode', { entity_id: entity.entity_id, fan_mode: f })} />
+                ))}
+              </View>
+            </>
+          )}
+          {presets.length > 0 && (
+            <>
+              <ThemedText>Preset</ThemedText>
+              <View style={styles.wrap}>
+                {presets.map((p) => (
+                  <Chip key={p} label={words(p)} selected={a.preset_mode === p} onPress={() => call('climate', 'set_preset_mode', { entity_id: entity.entity_id, preset_mode: p })} />
+                ))}
+              </View>
+            </>
+          )}
+        </Card>
+      )}
+
+      {rooms.length > 1 && (
+        <Card>
+          <ThemedText type="smallBold">Rooms</ThemedText>
+          {rooms.map((r) => (
+            <View key={r.key} style={styles.row}>
+              <ThemedText style={styles.flex}>{r.name}</ThemedText>
+              {r.occupied !== undefined && (
+                <SymbolView
+                  name={r.occupied ? 'person.fill' : 'person'}
+                  size={16}
+                  tintColor={r.occupied ? '#30D158' : theme.textSecondary}
+                  accessibilityLabel={r.occupied ? 'Someone is there' : 'Empty'}
+                />
+              )}
+              <ThemedText themeColor="textSecondary" style={styles.reading}>{degrees(r.temperature)}</ThemedText>
+            </View>
+          ))}
+        </Card>
+      )}
+    </>
+  );
+}
+
+/** "on_low" → "On low" */
+const words = (s: string) => s[0].toUpperCase() + s.slice(1).replace(/_/g, ' ');
+
+function Stepper({ label, icon, onPress }: { label: string; icon: 'minus' | 'plus'; onPress: () => void }) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+      onPress={onPress}
+      style={({ pressed }) => [styles.stepper, { backgroundColor: theme.backgroundSelected }, pressed && { opacity: 0.6 }]}>
+      <SymbolView name={icon} size={16} tintColor={theme.text} />
+    </Pressable>
+  );
+}
+
 /** One of the device's other entities, with the control that fits its domain. */
 function EntityRow({ entity, device }: { entity: HassEntity; device?: Device }) {
   const { call } = useHA();
@@ -417,4 +564,9 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },
   swatch: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#8888' },
+  now: { fontSize: 44, lineHeight: 50, fontWeight: '300', fontVariant: ['tabular-nums'] },
+  action: { alignItems: 'center', gap: 4 },
+  target: { minWidth: 72, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  stepper: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  reading: { minWidth: 48, textAlign: 'right', fontVariant: ['tabular-nums'] },
 });

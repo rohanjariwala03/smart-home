@@ -1,7 +1,9 @@
 import type { HassEntity } from 'home-assistant-js-websocket';
+import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
+import { degrees, roomReadings } from '@/climate';
 import { AddDeviceSheet } from '@/components/add-device';
 import { Chip } from '@/components/chip';
 import { active, allDevices, GAP, Tile, tileWidth } from '@/components/device-tile';
@@ -28,6 +30,9 @@ export default function DevicesScreen() {
 
   const rooms: Record<string, HassEntity[]> = {};
   for (const e of devices) (rooms[areas[e.entity_id] ?? OTHER] ??= []).push(e);
+  // A room with only sensors in it (an Ecobee room sensor) still gets its header, for the temperature.
+  const readings = roomReadings(entities, registry, areas);
+  for (const [room, r] of Object.entries(readings)) if (r.temperature !== undefined) rooms[room] ??= [];
   const roomNames = Object.keys(rooms).sort((a, b) => (a === OTHER ? 1 : b === OTHER ? -1 : a.localeCompare(b)));
 
   return (
@@ -58,9 +63,19 @@ export default function DevicesScreen() {
 
       {roomNames.map((room) => (
         <View key={room} style={styles.section}>
-          <ThemedText type="smallBold" themeColor="textSecondary">
-            {roomNames.length === 1 && room === OTHER ? 'Devices' : room}
-          </ThemedText>
+          <View style={styles.roomHeader}>
+            <ThemedText type="smallBold" themeColor="textSecondary" style={styles.flex}>
+              {roomNames.length === 1 && room === OTHER ? 'Devices' : room}
+            </ThemedText>
+            {readings[room]?.occupied && (
+              <SymbolView name="person.fill" size={13} tintColor="#30D158" accessibilityLabel="Someone is there" />
+            )}
+            {readings[room]?.temperature !== undefined && (
+              <ThemedText type="smallBold" themeColor="textSecondary">
+                {degrees(readings[room].temperature)}
+              </ThemedText>
+            )}
+          </View>
           <View style={styles.grid}>
             {rooms[room].map((e) => (
               <Tile key={e.entity_id} entity={e} width={tileWidth(width)} onSettings={() => setDetail(e.entity_id)} />
@@ -92,6 +107,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   found: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   section: { gap: Spacing.two },
+  roomHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
   hint: { textAlign: 'center' },
 });

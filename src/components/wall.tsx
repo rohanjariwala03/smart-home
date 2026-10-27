@@ -21,14 +21,15 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { removeAutomation, setSnapshots, SNAPSHOTS_ID, useAutomation } from '@/automations';
-import { allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
+import { degrees, roomReadings } from '@/climate';
+import { active as isActive, allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { LiveTile } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
 import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { useFavourites } from '@/favourites';
-import { byDomain, name, useHA } from '@/ha';
+import { byDomain, name, unavailable, useHA } from '@/ha';
 import { isPad } from '@/orientation';
 import { runScene } from '@/scenes';
 
@@ -98,6 +99,19 @@ export function WallSetting() {
 
 const time = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
+export function greeting() {
+  const h = new Date().getHours();
+  return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+/** Which cameras play in place (by slug); all stop when `active` goes false (page swiped away, covered, idle). */
+function useInlineLive(active: boolean) {
+  const [live, setLive] = useState<string[]>([]);
+  if (live.length && !active) setLive([]);
+  const play = useCallback((slug: string, on: boolean) => setLive((l) => (on ? [...l.filter((x) => x !== slug), slug] : l.filter((x) => x !== slug))), []);
+  return [live, play, setLive] as const;
+}
+
 /**
  * The iPad's Home, made to hang on a wall: time and weather, a clock, cameras, scenes and devices as glass tiles (your
  * favourites, or everything until you pick some). Tap a device to switch it, hold it for its settings. Swipe left for
@@ -105,7 +119,7 @@ const time = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2
  * untouched it fades to a big clock, and a tap brings the dashboard back.
  */
 export function Wall() {
-  const { creds, entities, devices: registry, status } = useHA();
+  const { creds, entities, devices: registry, areas, status, call } = useHA();
   const { favourites } = useFavourites();
   const { width, height } = useWindowDimensions();
   const focused = useIsFocused();
@@ -113,6 +127,8 @@ export function Wall() {
   const [watch, setWatch] = useState<HassEntity>();
   const [page, setPage] = useState(0);
   const [idle, poke] = useIdle(IDLE_MS);
+  const pager = useRef<ScrollView>(null);
+  const [live, play] = useInlineLive(page === 0 && focused && !idle && !watch && !detail);
 
   useDoorbell((camera) => {
     poke();
@@ -126,20 +142,47 @@ export function Wall() {
   const cameras = none ? allCameras : pinned.filter((e) => e.attributes.snapshot_of);
   const scenes = none ? byDomain(entities, 'scene', 'script') : pinned.filter(isScene);
   const devices = none ? allDevices(entities, registry) : pinned.filter((e) => !e.attributes.snapshot_of && !isScene(e));
+  const alarms = byDomain(entities, 'alarm_control_panel');
+  const thermostat = byDomain(entities, 'climate')[0];
+  const rooms = Object.entries(roomReadings(entities, registry, areas))
+    .filter(([, r]) => r.temperature !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const on = allDevices(entities, registry).filter(isActive);
+  const summary = [
+    on.length ? `${on.length} on` : 'Everything is off',
+    thermostat && !unavailable(thermostat) && `${degrees(thermostat.attributes.current_temperature)} inside`,
+    ...alarms.filter((a) => !unavailable(a)).map((a) => (a.state.startsWith('arm') ? 'Armed' : 'Disarmed')),
+  ].filter(Boolean);
 
   // Five columns across (four standing up); the time and weather take two by two, the rest flow around them.
   const landscape = width > height;
   const cols = landscape ? 5 : 4;
   const byWidth = (width - PAD * 2 - GAP * (cols - 1)) / cols;
-  const cell = Math.floor(landscape ? Math.min(byWidth, (height - 170 - GAP * 2) / 3) : byWidth);
+  const cell = Math.floor(landscape ? Math.min(byWidth, (height - 220 - GAP * 2) / 3) : byWidth);
   const span = (n: number) => cell * n + GAP * (n - 1);
   const tiles = [
     <ClockTile key="clock" size={cell} />,
-    ...cameras.map((c) => <CameraTile key={c.entity_id} camera={c} width={cell} height={cell} onPress={() => setWatch(c)} />),
+    ...alarms.map((a) => <SecurityTile key={a.entity_id} alarm={a} size={cell} />),
+    ...(rooms.length > 1 ? [<RoomsTile key="rooms" rooms={rooms} size={cell} onPress={thermostat ? () => setDetail(thermostat.entity_id) : undefined} />] : []),
+    ...cameras.map((c) => (
+      <CameraTile
+        key={c.entity_id}
+        camera={c}
+        width={cell}
+        height={cell}
+        live={live.includes(c.attributes.snapshot_of)}
+        onLive={play}
+        onOpen={() => setWatch(c)}
+      />
+    )),
     ...scenes.map((s) => <SceneTile key={s.entity_id} scene={s} size={cell} />),
     ...devices.map((d) => <DeviceTile key={d.entity_id} entity={d} size={cell} onLongPress={() => setDetail(d.entity_id)} />),
   ];
   const beside = (cols - 2) * 2;
+  const goTo = (i: number) => {
+    pager.current?.scrollTo({ x: i * width });
+    setPage(i);
+  };
   const backdrop = allCameras[0]?.attributes.entity_picture;
   const close = (then: () => void) => () => {
     then();
@@ -153,12 +196,25 @@ export function Wall() {
       <Streaks width={width} height={height} />
       <SafeAreaView style={styles.flex} edges={['top']}>
         <ScrollView
+          ref={pager}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / width))}>
           <ScrollView style={{ width }} contentContainerStyle={[styles.page, { width: span(cols) + PAD * 2 }]}>
-            {status !== 'ready' && <Text style={styles.banner}>{status === 'connecting' ? 'Connecting…' : 'Hub offline · reconnecting'}</Text>}
+            <View style={styles.between}>
+              <View style={styles.flex}>
+                <Text style={styles.heading}>{greeting()}</Text>
+                {status === 'ready' ? (
+                  <Text style={styles.sub} numberOfLines={1}>{summary.join(' · ')}</Text>
+                ) : (
+                  <Text style={styles.banner}>{status === 'connecting' ? 'Connecting…' : 'Hub offline · reconnecting'}</Text>
+                )}
+              </View>
+              {on.length > 0 && (
+                <Pill icon="power" label="All off" on={false} onPress={() => call('homeassistant', 'turn_off', { entity_id: on.map((e) => e.entity_id) })} />
+              )}
+            </View>
             <View style={styles.row}>
               <WeatherTile size={span(2)} />
               <View style={[styles.flow, { width: span(cols - 2) }]}>{tiles.slice(0, beside)}</View>
@@ -167,6 +223,19 @@ export function Wall() {
           </ScrollView>
           <CameraPage cameras={allCameras} width={width} active={page === 1 && focused && !idle && !watch && !detail} onWatch={setWatch} />
         </ScrollView>
+        <View style={styles.dots}>
+          {['Home', 'Cameras'].map((label, i) => (
+            <Pressable
+              key={label}
+              accessibilityRole="tab"
+              accessibilityLabel={label}
+              accessibilityState={{ selected: page === i }}
+              hitSlop={12}
+              onPress={() => goTo(i)}
+              style={[styles.pageDot, page === i && styles.pageDotOn]}
+            />
+          ))}
+        </View>
       </SafeAreaView>
 
       {focused && <KeepAwake />}
@@ -442,18 +511,24 @@ function SceneTile({ scene, size }: { scene: HassEntity; size: number }) {
   );
 }
 
+/** A device to tap on or off; a thermostat shows the room's temperature instead, and a tap opens its controls. */
 function DeviceTile({ entity, size, onLongPress }: { entity: HassEntity; size: number; onLongPress: () => void }) {
   const { off, isOn, state, timer, rgb: [r, g, b], icon, toggle } = useDevice(entity);
+  const reading = domainOf(entity) === 'climate' ? (entity.attributes.current_temperature as number | undefined) : undefined;
   return (
     <Glass
       width={size}
       on={isOn}
-      label={`${name(entity)}, ${state}${timer}`}
-      hint="Hold for timers, schedules and settings"
-      onPress={off ? undefined : toggle}
+      label={`${name(entity)}, ${reading !== undefined ? `${degrees(reading)}, ` : ''}${state}${timer}`}
+      hint={toggle ? 'Hold for timers, schedules and settings' : 'Opens its controls'}
+      onPress={off ? undefined : (toggle ?? onLongPress)}
       onLongPress={onLongPress}
       center>
-      <DeviceIcon entity={entity} isOn={isOn} icon={icon} rgb={[r, g, b]} size={size * 0.2} dim={off} />
+      {reading !== undefined ? (
+        <Text style={[styles.reading, { fontSize: size * 0.22 }, isOn && { color: `rgb(${r},${g},${b})` }]}>{degrees(reading)}</Text>
+      ) : (
+        <DeviceIcon entity={entity} isOn={isOn} icon={icon} rgb={[r, g, b]} size={size * 0.2} dim={off} />
+      )}
       <Label title={name(entity)} sub={state + timer} dark={isOn} />
     </Glass>
   );
@@ -532,31 +607,62 @@ function DeviceIcon({ entity, isOn, icon, rgb: [r, g, b], size, dim }: {
   );
 }
 
-function CameraTile({ camera, width, height, onPress }: { camera: HassEntity; width: number; height: number; onPress: () => void }) {
+/**
+ * A camera's snapshot. ▶ plays it right here (muted, stops after 2 minutes); tapping the picture, or the playing video,
+ * opens it full screen with sound and talk.
+ */
+function CameraTile({ camera, width, height, live, onLive, onOpen }: {
+  camera: HassEntity;
+  width: number;
+  height: number;
+  live: boolean;
+  onLive: (slug: string, on: boolean) => void;
+  onOpen: () => void;
+}) {
   const { creds, entities } = useHA();
+  const slug: string = camera.attributes.snapshot_of;
   const motion = entities[`binary_sensor.${camera.entity_id.split('.')[1]}_motion`]?.state === 'on';
   const picture: string | undefined = camera.attributes.entity_picture;
+  useEffect(() => {
+    if (!live) return;
+    const t = setTimeout(() => onLive(slug, false), LIVE_MS);
+    return () => clearTimeout(t);
+  }, [live, slug, onLive]);
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${name(camera)} live view`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.camera, { width, height }, pressed && styles.pressed]}>
-      {creds && picture && <Image source={{ uri: creds.url + picture }} style={StyleSheet.absoluteFill} />}
-      <View style={styles.cameraLabel}>
-        {motion && <View style={styles.dot} />}
-        <Text style={styles.cameraName} numberOfLines={1}>
-          {name(camera)}
-        </Text>
-        <SymbolView name="play.circle.fill" size={20} tintColor="#fff" />
-      </View>
-    </Pressable>
+    <View style={[styles.camera, { width, height }]}>
+      {creds && live ? (
+        <LiveTile creds={creds} camera={{ slug, name: name(camera) }} width={width} height={height} hidden={false} focused={false} onPress={onOpen} />
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${name(camera)}, open live full screen`}
+          onPress={onOpen}
+          style={({ pressed }) => [StyleSheet.absoluteFill, pressed && styles.pressed]}>
+          {creds && picture && <Image source={{ uri: creds.url + picture }} style={StyleSheet.absoluteFill} />}
+          <View style={styles.cameraLabel}>
+            {motion && <View style={styles.dot} />}
+            <Text style={styles.cameraName} numberOfLines={1}>
+              {name(camera)}
+            </Text>
+          </View>
+        </Pressable>
+      )}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={live ? `Stop ${name(camera)}` : `Play ${name(camera)} here`}
+        hitSlop={10}
+        onPress={() => onLive(slug, !live)}
+        style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}>
+        <SymbolView name={live ? 'stop.fill' : 'play.fill'} size={16} tintColor="#fff" />
+      </Pressable>
+    </View>
   );
 }
 
 /**
- * Every camera's snapshot; Live plays them all at once until Stop, 2 minutes, or the page being swiped away or covered.
- * "7 AM and 7 PM" keeps the snapshots fresh with a Home Assistant automation.
+ * Every camera's snapshot, each with its own ▶; "Play all" starts them together. Playing stops after 2 minutes, or when
+ * the page is swiped away or covered. "7 AM and 7 PM" keeps the snapshots fresh with a Home Assistant automation.
  */
 function CameraPage({ cameras, width, active, onWatch }: {
   cameras: HassEntity[];
@@ -565,9 +671,8 @@ function CameraPage({ cameras, width, active, onWatch }: {
   onWatch: (camera: HassEntity) => void;
 }) {
   const { creds } = useHA();
-  const [live, setLive] = useState(false);
-  if (live && !active) setLive(false);
-  const stop = useCallback(() => setLive(false), []);
+  const [live, play, setLive] = useInlineLive(active);
+  const all = cameras.length > 0 && cameras.every((c) => live.includes(c.attributes.snapshot_of));
   const refreshing = !!useAutomation(SNAPSHOTS_ID);
   const cols = width > 900 ? 3 : 2;
   const w = Math.floor((width - PAD * 2 - GAP * (cols - 1)) / cols);
@@ -582,18 +687,27 @@ function CameraPage({ cameras, width, active, onWatch }: {
         <Text style={styles.heading}>Cameras</Text>
         <View style={styles.row}>
           <Pill icon={refreshing ? 'checkmark.circle.fill' : 'clock'} label="New snapshot at 7 AM and 7 PM" on={refreshing} onPress={toggleSnapshots} />
-          <Pill icon={live ? 'stop.fill' : 'play.fill'} label={live ? 'Stop' : 'Live'} on={live} onPress={() => setLive(!live)} />
+          <Pill
+            icon={all ? 'stop.fill' : 'play.fill'}
+            label={all ? 'Stop all' : 'Play all'}
+            on={all}
+            onPress={() => setLive(all ? [] : cameras.map((c) => c.attributes.snapshot_of))}
+          />
         </View>
       </View>
-      {creds && live ? (
-        <LiveCameras cameras={cameras} w={w} onWatch={onWatch} onStop={stop} />
-      ) : (
-        <View style={styles.flow}>
-          {cameras.map((c) => (
-            <CameraTile key={c.entity_id} camera={c} width={w} height={Math.round((w * 9) / 16)} onPress={() => onWatch(c)} />
-          ))}
-        </View>
-      )}
+      <View style={styles.flow}>
+        {cameras.map((c) => (
+          <CameraTile
+            key={c.entity_id}
+            camera={c}
+            width={w}
+            height={Math.round((w * 9) / 16)}
+            live={live.includes(c.attributes.snapshot_of)}
+            onLive={play}
+            onOpen={() => onWatch(c)}
+          />
+        ))}
+      </View>
     </ScrollView>
   );
 }
@@ -611,31 +725,43 @@ function Pill({ icon, label, on, onPress }: { icon: SFSymbol; label: string; on:
   );
 }
 
-function LiveCameras({ cameras, w, onWatch, onStop }: {
-  cameras: HassEntity[];
-  w: number;
-  onWatch: (camera: HassEntity) => void;
-  onStop: () => void;
-}) {
-  const { creds } = useHA();
-  useEffect(() => {
-    const t = setTimeout(onStop, LIVE_MS);
-    return () => clearTimeout(t);
-  }, [onStop]);
+/** The alarm: tap to arm (away) or disarm. */
+function SecurityTile({ alarm, size }: { alarm: HassEntity; size: number }) {
+  const { call } = useHA();
+  const off = unavailable(alarm);
+  const armed = alarm.state.startsWith('arm'); // 'arming' too, so it doesn't flick back
+  const status = off ? 'Unavailable' : alarm.state === 'arming' ? 'Arming…' : armed ? 'Armed' : 'Disarmed';
+  const flip = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    call('alarm_control_panel', armed ? 'alarm_disarm' : 'alarm_arm_away', { entity_id: alarm.entity_id });
+  };
   return (
-    <View style={styles.flow}>
-      {cameras.map((c) => (
-        <LiveTile
-          key={c.entity_id}
-          creds={creds!}
-          camera={{ slug: c.attributes.snapshot_of, name: name(c) }}
-          width={w}
-          hidden={false}
-          focused={false}
-          onPress={() => onWatch(c)}
-        />
-      ))}
-    </View>
+    <Glass width={size} on={armed} center label={`${name(alarm)}, ${status}`} hint={armed ? 'Disarms' : 'Arms'} onPress={off ? undefined : flip}>
+      <SymbolView name={armed ? 'lock.shield.fill' : 'shield'} size={size * 0.2} tintColor={armed ? '#1c1c1e' : off ? '#ffffff55' : '#fff'} />
+      <Label title={name(alarm)} sub={status} dark={armed} />
+    </Glass>
+  );
+}
+
+/** Each room's temperature, and a green dot where someone is; tap for the thermostat. */
+function RoomsTile({ rooms, size, onPress }: {
+  rooms: [string, { temperature?: number; occupied?: boolean }][];
+  size: number;
+  onPress?: () => void;
+}) {
+  return (
+    <Glass width={size} label={`Rooms: ${rooms.map(([room, r]) => `${room} ${degrees(r.temperature)}`).join(', ')}`} hint="Opens the thermostat" onPress={onPress}>
+      <Text style={styles.small}>Rooms</Text>
+      <View style={styles.rooms}>
+        {rooms.slice(0, 5).map(([room, r]) => (
+          <View key={room} style={styles.roomRow}>
+            <Text style={styles.roomName} numberOfLines={1}>{room}</Text>
+            {r.occupied && <View style={[styles.dot, styles.here]} />}
+            <Text style={styles.roomTemp}>{degrees(r.temperature)}</Text>
+          </View>
+        ))}
+      </View>
+    </Glass>
   );
 }
 
@@ -664,6 +790,26 @@ const styles = StyleSheet.create({
   pillText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   halo: { position: 'absolute', shadowOpacity: 1, shadowOffset: { width: 0, height: 0 } },
   camera: { borderRadius: 28, overflow: 'hidden', backgroundColor: '#1c1c1e' },
+  playButton: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  reading: { color: '#fff', fontWeight: '300', letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  rooms: { gap: 6 },
+  roomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  roomName: { flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 14, fontWeight: '500' },
+  roomTemp: { color: '#fff', fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  here: { backgroundColor: '#30D158' },
+  dots: { position: 'absolute', bottom: 28, alignSelf: 'center', flexDirection: 'row', gap: 10 },
+  pageDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.3)' },
+  pageDotOn: { backgroundColor: '#fff' },
   cameraLabel: {
     position: 'absolute',
     left: 0,
@@ -673,6 +819,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     padding: 14,
+    paddingRight: 56, // the ▶ button
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   cameraName: { flex: 1, color: '#fff', fontSize: 15, fontWeight: '700' },

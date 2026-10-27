@@ -243,7 +243,7 @@ export const playerOn = (e: HassEntity) => !['off', 'standby', 'unavailable', 'u
  */
 /** Devices with a main entity (camera, speaker/TV, light, fan): their switches are settings, not devices. */
 export const parentDevices = (entities: HassEntities, devices: Record<string, Device>) =>
-  new Set(Object.keys(entities).flatMap((id) => (/^(camera|media_player|light|fan)\./.test(id) && devices[id] ? [devices[id].id] : [])));
+  new Set(Object.keys(entities).flatMap((id) => (/^(camera|media_player|light|fan|climate)\./.test(id) && devices[id] ? [devices[id].id] : [])));
 
 export function switchables(entities: HassEntities, devices: Record<string, Device>) {
   const parent = parentDevices(entities, devices);

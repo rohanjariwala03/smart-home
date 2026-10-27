@@ -9,16 +9,11 @@ import { DeviceSheet } from '@/components/device-sheet';
 import { FavouritesSheet } from '@/components/favourites-sheet';
 import { Card, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
-import { useWallDashboard, Wall } from '@/components/wall';
+import { greeting, useWallDashboard, Wall } from '@/components/wall';
 import { Spacing } from '@/constants/theme';
 import { useFavourites } from '@/favourites';
 import { name, useHA } from '@/ha';
 import { runScene } from '@/scenes';
-
-function greeting() {
-  const h = new Date().getHours();
-  return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-}
 
 // An iPad gets the wall dashboard (unless it's turned off in Settings); the phone always gets its favourites list.
 export default function Home() {
