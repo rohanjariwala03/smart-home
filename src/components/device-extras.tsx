@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ICON_CHOICES } from '@/components/device-tile';
 import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -418,6 +419,26 @@ export function NameRoomCard({ entity, device }: { entity: HassEntity; device?: 
         </View>
       )}
       {error && <ThemedText style={styles.error}>{error}</ThemedText>}
+    </Card>
+  );
+}
+
+/** Pick the device's icon (Kasa's own doesn't reach Home Assistant). Tap the chosen one again for the default. */
+export function IconCard({ entity }: { entity: HassEntity }) {
+  const { conn } = useHA();
+  const current: string | undefined = entity.attributes.icon;
+  const pick = (mdi: string) =>
+    conn
+      ?.sendMessagePromise({ type: 'config/entity_registry/update', entity_id: entity.entity_id, icon: mdi === current ? null : mdi })
+      .catch((e) => Alert.alert('Couldn’t change the icon', e?.code === 'unauthorized' ? ADMIN_ONLY : (e?.message ?? String(e))));
+  return (
+    <Card>
+      <ThemedText type="smallBold">Icon</ThemedText>
+      <View style={styles.wrap}>
+        {ICON_CHOICES.map((c) => (
+          <Chip key={c.mdi} icon={c.symbol} label={c.label} selected={current === c.mdi} onPress={() => pick(c.mdi)} />
+        ))}
+      </View>
     </Card>
   );
 }

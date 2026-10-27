@@ -26,6 +26,30 @@ export const ICONS: Record<string, SFSymbol> = {
   media_player: 'tv.fill',
   climate: 'thermometer.medium',
 };
+/**
+ * Icons you can give a device (Settings in its sheet), like the Kasa app's. Saved as the entity's icon in Home
+ * Assistant, so every screen (and Home Assistant itself) shows it; Kasa's own icon never reaches Home Assistant.
+ */
+export const ICON_CHOICES: { mdi: string; symbol: SFSymbol; label: string }[] = [
+  { mdi: 'mdi:lamp', symbol: 'lamp.table.fill', label: 'Lamp' },
+  { mdi: 'mdi:floor-lamp', symbol: 'lamp.floor.fill', label: 'Floor lamp' },
+  { mdi: 'mdi:desk-lamp', symbol: 'lamp.desk.fill', label: 'Desk lamp' },
+  { mdi: 'mdi:ceiling-light', symbol: 'lamp.ceiling.fill', label: 'Ceiling light' },
+  { mdi: 'mdi:lightbulb', symbol: 'lightbulb.fill', label: 'Bulb' },
+  { mdi: 'mdi:led-strip-variant', symbol: 'light.strip.2.fill', label: 'Light strip' },
+  { mdi: 'mdi:string-lights', symbol: 'sparkles', label: 'Decorative' },
+  { mdi: 'mdi:pine-tree', symbol: 'tree.fill', label: 'Tree' },
+  { mdi: 'mdi:fan', symbol: 'fan.fill', label: 'Fan' },
+  { mdi: 'mdi:ceiling-fan', symbol: 'fan.ceiling.fill', label: 'Ceiling fan' },
+  { mdi: 'mdi:television', symbol: 'tv.fill', label: 'TV' },
+  { mdi: 'mdi:speaker', symbol: 'hifispeaker.fill', label: 'Speaker' },
+  { mdi: 'mdi:coffee-maker', symbol: 'cup.and.saucer.fill', label: 'Coffee' },
+  { mdi: 'mdi:radiator', symbol: 'heater.vertical.fill', label: 'Heater' },
+  { mdi: 'mdi:air-purifier', symbol: 'air.purifier.fill', label: 'Purifier' },
+  { mdi: 'mdi:router-wireless', symbol: 'wifi.router.fill', label: 'Router' },
+  { mdi: 'mdi:power-socket-us', symbol: 'powerplug.fill', label: 'Plug' },
+];
+
 export const GAP = 12;
 const AMBER: number[] = [255, 179, 0];
 
@@ -89,7 +113,8 @@ export function useDevice(entity: HassEntity) {
         : call(domainOf(entity), isOn ? 'turn_off' : 'turn_on', { entity_id: entity.entity_id }),
     );
   };
-  const icon: SFSymbol = echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power');
+  const chosen = ICON_CHOICES.find((c) => c.mdi === entity.attributes.icon)?.symbol;
+  const icon: SFSymbol = chosen ?? (echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power'));
   return { off, isOn, state, timer, rgb: [r, g, b], icon, toggle };
 }
 

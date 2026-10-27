@@ -5,7 +5,7 @@ import { ActionSheetIOS, Button, Modal, Pressable, ScrollView, StyleSheet, View 
 import { AlertRows } from '@/components/announce-settings';
 import { useRemoveDevice } from '@/components/remove-devices';
 import { Chip } from '@/components/chip';
-import { ActivityCard, AwayCard, FollowCard, NameRoomCard, RenameButton, TimerCard } from '@/components/device-extras';
+import { ActivityCard, AwayCard, FollowCard, IconCard, NameRoomCard, RenameButton, TimerCard } from '@/components/device-extras';
 import { ScheduleCard } from '@/components/schedule-card';
 import { Thermostat } from '@/components/thermostat';
 import { Card } from '@/components/screen';
@@ -138,6 +138,8 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
           <AlertRows entity={entity} card />
 
           <NameRoomCard entity={entity} device={device} />
+
+          {SWITCHABLE.includes(domain) && <IconCard entity={entity} />}
 
           {device && (
             <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
