@@ -410,6 +410,9 @@ export const HALLOWEEN_DIR = 'halloween';
 const FROM = 16 * 60;
 const SLOTS = 42;
 const TONIGHT = "{{ now().month == 10 and now().day == 31 and 16 <= now().hour < 23 }}";
+// Or any time on the practice day you picked (visits then aren't counted).
+const TONIGHT_OR_PRACTICE =
+  "{{ (now().month == 10 and now().day == 31 and 16 <= now().hour < 23) or now().strftime('%Y-%m-%d') == (halloween.practice | default('')) }}";
 const BUMP = `{% set today = now().strftime('%Y-%m-%d') %}{% set s = states('${HALLOWEEN_TALLY}') %}\
 {% set n = s.split('|')[1].split(',') | map('int') | list if s.startswith(today ~ '|') else [0] * ${SLOTS} %}\
 {% set i = [[((now().hour * 60 + now().minute) - ${FROM}) // 10, 0] | max, ${SLOTS - 1}] | min %}\
@@ -436,21 +439,32 @@ export const HALLOWEEN_SOUNDS = [
   ['amzn_sfx_wolf_howl_02', 'Wolf howl'],
 ] as const;
 /** The iPad's own sounds (assets/sounds, real recordings), separate from the Echo's Alexa sounds above. */
-export const IPAD_SOUNDS = [
-  ['creaky_door', 'Creaky door'],
-  ['heartbeat', 'Heartbeat'],
-  ['thunder', 'Thunder'],
-  ['evil_laugh', 'Evil laugh'],
-  ['evil_laugh_2', 'Evil laugh 2'],
-  ['witch_cackle', 'Witch cackle'],
-  ['ghost', 'Ghost'],
-  ['scream', 'Scream'],
-  ['haunted_choir', 'Haunted choir'],
-  ['monster_growl', 'Monster growl'],
-  ['monster_snarl', 'Monster snarl'],
-  ['monster_roar', 'Monster roar'],
-  ['monster_breath', 'Monster breath'],
+export const IPAD_SOUNDS = [ // id, label, seconds
+  ['creaky_door', 'Creaky door', 5],
+  ['heartbeat', 'Heartbeat', 7],
+  ['thunder', 'Thunder', 6],
+  ['evil_laugh', 'Evil laugh', 3.2],
+  ['evil_laugh_2', 'Evil laugh 2', 2.5],
+  ['witch_cackle', 'Witch cackle', 1.8],
+  ['ghost', 'Ghost', 5],
+  ['scream', 'Scream', 3.7],
+  ['haunted_choir', 'Haunted choir', 5],
+  ['monster_growl', 'Monster growl', 5.2],
+  ['monster_snarl', 'Monster snarl', 5.2],
+  ['monster_roar', 'Monster roar', 5.2],
+  ['monster_breath', 'Monster breath', 5.2],
 ] as const;
+/** The iPad blends each sound into the next over this long (src/components/halloween.tsx). */
+export const CROSSFADE = 0.6;
+const LINE_SECONDS = 2.5;
+/** How long a visit's sounds last (the lights play along); the Echo's are about 8 s. */
+export function playSeconds(h: Pick<Halloween, 'ipad' | 'ipadSounds' | 'say'>) {
+  if (!h.ipad) return 8;
+  const parts = [...(h.ipadSounds ?? IPAD_PLAYLIST).map((id) => IPAD_SOUNDS.find((s) => s[0] === id)?.[2] ?? 0), ...(h.say ? [LINE_SECONDS] : [])];
+  return Math.max(4, Math.round(parts.reduce((a, b) => a + b, 0) - CROSSFADE * Math.max(0, parts.length - 1)));
+}
+/** A Govee light's own Halloween scene. */
+const HALLOWEEN_EFFECT = 'Halloween';
 /** What the iPad plays, in order, until you pick your own. */
 export const IPAD_PLAYLIST = ['creaky_door', 'monster_growl', 'evil_laugh'];
 export const HALLOWEEN_EVENT = 'smarthome_halloween';
@@ -465,6 +479,7 @@ export type Halloween = {
   echo?: string; // Alexa Media Player speaker (the porch one)
   ipad?: boolean; // the iPad by the door plays its own sounds, through whatever speaker is paired with it
   ipadSounds?: string[]; // played one after another, in this order
+  practice?: string; // YYYY-MM-DD: camera motion works all that day too, without counting
   sounds: string[];
   say: boolean; // a spoken line after the sound
   notify?: string; // the morning-after recap
@@ -484,25 +499,36 @@ export async function ensureTally(conn: Connection, entities: HassEntities) {
 export async function setHalloween(creds: Creds, h: Halloween, entities: HassEntities) {
   h = { ...h, ipadSounds: h.ipadSounds ?? IPAD_PLAYLIST }; // set up before the iPad had its own
   const motions = h.cameras.map((c) => `binary_sensor.${c.split('.')[1]}_motion`).filter((m) => entities[m]);
-  const colour = (rgb: number[]) => ({ action: 'light.turn_on', target: { entity_id: h.lights }, data: { rgb_color: rgb, brightness_pct: 100 } });
+  // The lights play for as long as the sounds do. A light with its own Halloween scene (Govee) runs that: one command,
+  // where a flicker of colours is too many for Govee's cloud. Others flicker. Then the lights that were on go back to
+  // warm white (again a little later if the cloud missed it) and the rest off. An error from a light doesn't stop it.
+  const secs = playSeconds(h);
+  const fx = h.lights.filter((l) => entities[l]?.attributes.effect_list?.includes(HALLOWEEN_EFFECT));
+  const plain = h.lights.filter((l) => !fx.includes(l));
+  const colour = (rgb: number[]) => ({ action: 'light.turn_on', target: { entity_id: plain }, data: { rgb_color: rgb, brightness_pct: 100 }, continue_on_error: true });
+  const warm = (who: string) => ({
+    if: [{ condition: 'template', value_template: `{{ ${who} | count > 0 }}` }],
+    then: [{ action: 'light.turn_on', target: { entity_id: `{{ ${who} }}` }, data: { color_temp_kelvin: WARM_WHITE }, continue_on_error: true }],
+  });
   const lights = h.lights.length && {
     sequence: [
-      { action: 'scene.create', data: { scene_id: 'halloween_before', snapshot_entities: h.lights } },
-      { repeat: { count: 5, sequence: [colour([255, 90, 0]), { delay: { milliseconds: 300 } }, colour([150, 0, 255]), { delay: { milliseconds: 300 } }] } },
-      { action: 'scene.turn_on', target: { entity_id: 'scene.halloween_before' } },
-      // Govee's cloud can land a late orange after the restore: a few seconds on, the lights that are on go back to
-      // warm white.
-      { delay: { seconds: 3 } },
+      { variables: { was_on: "{{ halloween.lights | select('is_state', 'on') | list }}", started: '{{ as_timestamp(now()) }}' } },
+      ...(fx.length ? [{ action: 'light.turn_on', target: { entity_id: fx }, data: { effect: HALLOWEEN_EFFECT }, continue_on_error: true }] : []),
+      plain.length
+        ? {
+            repeat: {
+              while: [{ condition: 'template', value_template: `{{ as_timestamp(now()) - started < ${secs} }}` }],
+              sequence: [colour([255, 90, 0]), { delay: { milliseconds: 600 } }, colour([150, 0, 255]), { delay: { milliseconds: 600 } }],
+            },
+          }
+        : { delay: { seconds: secs } },
+      warm('was_on'),
       {
-        if: [{ condition: 'template', value_template: "{{ halloween.lights | select('is_state', 'on') | list | count > 0 }}" }],
-        then: [
-          {
-            action: 'light.turn_on',
-            target: { entity_id: "{{ halloween.lights | select('is_state', 'on') | list }}" },
-            data: { color_temp_kelvin: WARM_WHITE },
-          },
-        ],
+        if: [{ condition: 'template', value_template: "{{ halloween.lights | reject('in', was_on) | list | count > 0 }}" }],
+        then: [{ action: 'light.turn_off', target: { entity_id: "{{ halloween.lights | reject('in', was_on) | list }}" }, continue_on_error: true }],
       },
+      { delay: { seconds: 5 } },
+      warm("was_on | reject('is_state_attr', 'color_mode', 'color_temp') | list"),
     ],
   };
   const sound = h.echo && {
@@ -520,10 +546,10 @@ export async function setHalloween(creds: Creds, h: Halloween, entities: HassEnt
   };
   await rest(creds, 'POST', HALLOWEEN_ID, {
     alias: 'Halloween: trick-or-treaters',
-    description: 'Created by the Smart Home app. Runs on Oct 31 from 4 to 11 PM; comes back next year.',
+    description: 'Created by the Smart Home app. Runs on Oct 31 from 4 to 11 PM (and on a practice day); comes back next year.',
     triggers: [{ trigger: 'state', entity_id: motions, to: 'on' }],
     variables: { halloween: h },
-    conditions: [{ condition: 'template', value_template: TONIGHT }],
+    conditions: [{ condition: 'template', value_template: TONIGHT_OR_PRACTICE }],
     actions: [
       { if: [{ condition: 'template', value_template: TONIGHT }], then: [{ action: 'input_text.set_value', target: { entity_id: HALLOWEEN_TALLY }, data: { value: BUMP } }] },
       ...([lights, sound, ipad].some(Boolean) ? [{ parallel: [lights, sound, ipad].filter(Boolean) }] : []),

@@ -9,10 +9,12 @@ import {
   HALLOWEEN_DIR,
   HALLOWEEN_ID,
   HALLOWEEN_SOUNDS,
+  CROSSFADE,
   IPAD_PLAYLIST,
   IPAD_SOUNDS,
   HALLOWEEN_TALLY,
   halloweenOf,
+  playSeconds,
   removeHalloween,
   setHalloween,
   tallyOf,
@@ -105,6 +107,7 @@ function HalloweenSetup() {
   const h: Halloween = draft ??
     saved ?? { cameras: [], lights: [], ipad: true, sounds: HALLOWEEN_SOUNDS.map(([id]) => id), say: true, notify: notify[0] };
   const ipadSounds = h.ipadSounds ?? IPAD_PLAYLIST;
+  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, like Home Assistant's
   const edit = (next: Partial<Halloween>) => setDraft({ ...h, ipadSounds, ...next });
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   const run = async (p: () => Promise<unknown>) => {
@@ -160,7 +163,7 @@ function HalloweenSetup() {
             <View style={styles.row}>
               <Chip
                 icon="play.fill"
-                label={`Play all (${Math.round(ipadSounds.reduce((s, id) => s + (SECONDS[id] ?? 0), 0) + (h.say ? 2.5 : 0))} s)`}
+                label={`Play all (${playSeconds({ ipad: true, ipadSounds, say: h.say })} s)`}
                 onPress={() => playAll([...ipadSounds.map((id) => SOUND_FILES[id]), ...(h.say ? [LINE_FILES[0]] : [])])}
               />
               <Chip icon="xmark" label="Clear" onPress={() => edit({ ipadSounds: [] })} />
@@ -188,6 +191,10 @@ function HalloweenSetup() {
           <Switch value={!!h.notify} onValueChange={(on) => edit({ notify: on ? notify[0] : undefined })} />
         </View>
       )}
+      <View style={styles.row}>
+        <ThemedText style={styles.flex}>Practice today: camera motion works now too (not counted)</ThemedText>
+        <Switch value={h.practice === today} onValueChange={(on) => edit({ practice: on ? today : undefined })} />
+      </View>
       <View style={styles.row}>
         <Chip
           icon="checkmark"
@@ -222,11 +229,6 @@ const SOUND_FILES: Record<string, number> = {
   monster_roar: require('@/assets/sounds/monster_roar.m4a'),
   monster_breath: require('@/assets/sounds/monster_breath.m4a'),
 };
-// Their lengths, for the setup's "Play all (n s)".
-const SECONDS: Record<string, number> = {
-  creaky_door: 5, heartbeat: 7, thunder: 6, evil_laugh: 3.2, evil_laugh_2: 2.5, witch_cackle: 1.8, ghost: 5, scream: 3.7,
-  haunted_choir: 7, monster_growl: 5.2, monster_snarl: 5.2, monster_roar: 5.2, monster_breath: 5.2,
-};
 const LINE_FILES = [
   require('@/assets/sounds/line0.m4a'),
   require('@/assets/sounds/line1.m4a'),
@@ -234,26 +236,38 @@ const LINE_FILES = [
   require('@/assets/sounds/line3.m4a'),
 ];
 
-/** Plays one file to the end (or gives up after 8 s). */
-function play(file: number) {
-  return new Promise<void>((done) => {
-    const player: AudioPlayer = createAudioPlayer(file);
-    const finish = () => (clearTimeout(timer), sub.remove(), player.remove(), done());
-    const timer = setTimeout(finish, 8000);
-    const sub = player.addListener('playbackStatusUpdate', (s) => s.didJustFinish && finish());
-    player.play();
-  });
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+/** Moves a player's volume from one level to another over CROSSFADE. */
+async function fade(player: AudioPlayer, from: number, to: number) {
+  for (let step = 0; step <= 10; step++) {
+    player.volume = from + ((to - from) * step) / 10;
+    await sleep((CROSSFADE * 1000) / 10);
+  }
 }
 
-/** Sounds one after another on this device (silent switch or not); one run at a time. */
+/**
+ * Sounds one after another on this device (silent switch or not), each blending into the next over CROSSFADE so
+ * there's no gap. All are loaded first. One run at a time.
+ */
 let playing = false;
 async function playAll(files: number[]) {
-  if (playing) return;
+  if (playing || !files.length) return;
   playing = true;
+  const players = files.map((file) => createAudioPlayer(file));
   try {
     await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
-    for (const file of files) await play(file);
+    for (let wait = 0; wait < 40 && players.some((p) => !p.isLoaded || !p.duration); wait++) await sleep(50);
+    for (const [i, player] of players.entries()) {
+      player.volume = i === 0 ? 1 : 0;
+      player.play();
+      if (i > 0) fade(player, 0, 1);
+      await sleep(Math.max(0, (player.duration || 3) - CROSSFADE) * 1000);
+      if (i < players.length - 1) fade(player, 1, 0);
+      else await sleep(CROSSFADE * 1000 + 200);
+    }
   } finally {
+    setTimeout(() => players.forEach((p) => p.remove()), (CROSSFADE + 1) * 1000);
     playing = false;
   }
 }

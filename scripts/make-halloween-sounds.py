@@ -32,7 +32,7 @@ EFFECTS = {  # name: (source file, seconds kept at most, echo)
     'creaky_door': ('creaky_door_hinge.wav', 4.5, True),
     'ghost': ('scaryhighpitchedghost_0.ogg', 5, False),
     'scream': ('screams_0.ogg', 3, True),
-    'haunted_choir': ('ambient_horror_0.ogg', 7, False),
+    'haunted_choir': ('ambient_horror_0.ogg', 5, False),
 }
 OUTDOOR = ((0.21, 0.4), (0.43, 0.22), (0.68, 0.1))
 CAVE = ((0.12, 0.5), (0.29, 0.35), (0.47, 0.25), (0.71, 0.15), (0.97, 0.08))
