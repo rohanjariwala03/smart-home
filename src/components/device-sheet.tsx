@@ -16,6 +16,7 @@ import { armStatus, Toggle } from '@/components/toggle';
 import { Spacing } from '@/constants/theme';
 import { deviceName, isEcho, name, playerOn, unavailable, useHA, type Device } from '@/ha';
 import { GoveeCard } from '@/govee';
+import { LightColour } from '@/components/light-colour';
 
 const COLOR_MODES = ['hs', 'rgb', 'rgbw', 'rgbww', 'xy'];
 export const SWATCHES: [number, number, number][] = [
@@ -172,8 +173,6 @@ function LightControls({ entity }: { entity: HassEntity }) {
   const dimmable = modes.some((m) => m !== 'onoff');
   const colored = modes.some((m) => COLOR_MODES.includes(m));
   const warmth = modes.includes('color_temp');
-  const minK: number = a.min_color_temp_kelvin ?? 2000;
-  const maxK: number = a.max_color_temp_kelvin ?? 6500;
   const turnOn = (data: object) => call('light', 'turn_on', { entity_id: entity.entity_id, ...data });
 
   return (
@@ -198,34 +197,9 @@ function LightControls({ entity }: { entity: HassEntity }) {
         </Card>
       )}
 
-      {on && warmth && (
+      {on && (colored || warmth || a.effect_list?.length > 0) && (
         <Card>
-          <ThemedText>Warmth</ThemedText>
-          <Slider
-            minimumValue={minK}
-            maximumValue={maxK}
-            step={50}
-            value={a.color_temp_kelvin ?? (minK + maxK) / 2}
-            minimumTrackTintColor="#FFB45A"
-            maximumTrackTintColor="#CFE3FF"
-            onSlidingComplete={(k) => turnOn({ color_temp_kelvin: k })}
-          />
-        </Card>
-      )}
-
-      {on && colored && (
-        <Card>
-          <ThemedText>Colour</ThemedText>
-          <View style={styles.swatches}>
-            {SWATCHES.map((rgb) => (
-              <Pressable
-                key={rgb.join()}
-                accessibilityLabel={`Set colour rgb ${rgb.join(' ')}`}
-                onPress={() => turnOn({ rgb_color: rgb })}
-                style={[styles.swatch, { backgroundColor: `rgb(${rgb.join()})` }]}
-              />
-            ))}
-          </View>
+          <LightColour entity={entity} />
         </Card>
       )}
     </>
@@ -434,6 +408,4 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.two },
   section: { gap: Spacing.two },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },
-  swatch: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#8888' },
 });
