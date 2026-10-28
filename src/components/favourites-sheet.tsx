@@ -8,7 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useFavourites } from '@/favourites';
-import { byDomain, name, useHA } from '@/ha';
+import { byDomain, name, scenesOf, useHA } from '@/ha';
 
 const icon = (e: HassEntity) => (e.attributes.snapshot_of ? 'video.fill' : (ICONS[domainOf(e)] ?? 'power'));
 
@@ -20,7 +20,7 @@ export function FavouritesSheet({ onClose }: { onClose: () => void }) {
   const sections: [string, HassEntity[]][] = [
     ['Cameras', byDomain(entities, 'camera').filter((e) => e.attributes.snapshot_of)],
     ['Devices', allDevices(entities, devices)],
-    ['Scenes', byDomain(entities, 'scene', 'script')],
+    ['Scenes', scenesOf(entities)],
   ];
 
   // SwiftUI's onMove: `destination` is an index into the list before the move.

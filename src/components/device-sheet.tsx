@@ -16,6 +16,7 @@ import { armStatus, Toggle } from '@/components/toggle';
 import { Spacing } from '@/constants/theme';
 import { deviceName, isEcho, name, playerOn, unavailable, useHA, type Device } from '@/ha';
 import { GoveeCard } from '@/govee';
+import { isPad } from '@/orientation';
 import { LightColour } from '@/components/light-colour';
 
 const COLOR_MODES = ['hs', 'rgb', 'rgbw', 'rgbww', 'xy'];
@@ -66,18 +67,19 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
         .sort((a, b) => name(a).localeCompare(name(b)))
     : [];
 
-  // On a landscape iPad the thermostat gets the whole screen, in two columns, instead of a narrow sheet.
-  const wide = domain === 'climate' && width >= 1000;
+  // On an iPad the thermostat gets the whole screen instead of a narrow sheet, in two columns when there's room.
+  const full = domain === 'climate' && isPad;
+  const wide = full && width >= 760;
 
   return (
     <Modal
       visible
       animationType="slide"
-      presentationStyle={wide ? 'fullScreen' : 'pageSheet'}
+      presentationStyle={full ? 'fullScreen' : 'pageSheet'}
       supportedOrientations={['portrait', 'landscape']}
       onRequestClose={onClose}>
       <ThemedView style={styles.flex}>
-        <ScrollView contentContainerStyle={[styles.sheet, wide && styles.wideSheet]}>
+        <ScrollView contentContainerStyle={[styles.sheet, full && styles.wideSheet]}>
           <View style={styles.header}>
             <ThemedText type="subtitle" numberOfLines={1} style={styles.flex}>
               {name(entity)}

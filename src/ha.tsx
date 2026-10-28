@@ -212,6 +212,9 @@ export const byDomain = (entities: HassEntities, ...domains: string[]) =>
     .filter((e) => domains.includes(e.entity_id.split('.')[0]))
     .sort((a, b) => name(a).localeCompare(name(b)));
 
+/** Scenes and scripts to offer, without the Halloween automation's "lights as they were" snapshot. */
+export const scenesOf = (entities: HassEntities) => byDomain(entities, 'scene', 'script').filter((e) => e.entity_id !== 'scene.halloween_before');
+
 export const name = (e: HassEntity) => e.attributes.friendly_name ?? e.entity_id;
 
 export const unavailable = (e?: HassEntity) => !e || e.state === 'unavailable' || e.state === 'unknown';

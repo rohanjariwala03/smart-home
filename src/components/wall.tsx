@@ -9,12 +9,9 @@ import type { HassEntity } from 'home-assistant-js-websocket';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
-  cancelAnimation,
-  Easing,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
-  withRepeat,
   withSequence,
   withSpring,
   withTiming,
@@ -33,7 +30,8 @@ import { LiveView } from '@/components/live-view';
 import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { useFavourites } from '@/favourites';
-import { byDomain, name, unavailable, useHA } from '@/ha';
+import { byDomain, name, scenesOf, unavailable, useHA } from '@/ha';
+import { useIconMotion } from '@/components/icon-motion';
 import { isPad } from '@/orientation';
 import { runScene } from '@/scenes';
 
@@ -135,7 +133,7 @@ export function Wall() {
   const isScene = (e: HassEntity) => ['scene', 'script'].includes(domainOf(e));
   const none = !pinned.length;
   const cameras = none ? allCameras : pinned.filter((e) => e.attributes.snapshot_of);
-  const scenes = none ? byDomain(entities, 'scene', 'script') : pinned.filter(isScene);
+  const scenes = none ? scenesOf(entities) : pinned.filter(isScene);
   const alarms = byDomain(entities, 'alarm_control_panel');
   const thermostat = byDomain(entities, 'climate')[0];
   const devices = (none ? allDevices(entities, registry) : pinned.filter((e) => !e.attributes.snapshot_of && !isScene(e))).filter((e) => e !== thermostat);
@@ -572,9 +570,8 @@ function DeviceTile({ entity, size, onLongPress }: { entity: HassEntity; size: n
 }
 
 /**
- * A device's icon, moving the way the device does: a fan spins (faster at a higher speed), a vacuum wiggles while it
- * cleans, a TV or speaker pulses while it plays, and a light glows in its own colour. Switching gives it a little pop.
- * Still with Reduce Motion on.
+ * A device's icon, moving the way it does (src/components/icon-motion.ts): a fan spins, a TV flickers, a speaker beats,
+ * a light glows in its own colour. Switching gives it a little pop. Still with Reduce Motion on.
  */
 function DeviceIcon({ entity, isOn, icon, rgb: [r, g, b], size, dim }: {
   entity: HassEntity;
@@ -585,25 +582,10 @@ function DeviceIcon({ entity, isOn, icon, rgb: [r, g, b], size, dim }: {
   dim: boolean;
 }) {
   const still = useReducedMotion();
-  const domain = domainOf(entity);
-  const motion =
-    !isOn || still ? undefined
-    : domain === 'fan' ? 'spin'
-    : domain === 'vacuum' ? 'wiggle'
-    : domain === 'media_player' && entity.state === 'playing' ? 'pulse'
-    : undefined;
-  const percent: number = entity.attributes.percentage ?? 100;
-  const loop = useSharedValue(0);
+  const { kind, style: motion, loop } = useIconMotion(icon, entity, isOn);
   const pop = useSharedValue(1);
   const glow = useSharedValue(isOn ? 1 : 0);
   const was = useRef(isOn);
-
-  useEffect(() => {
-    loop.set(0);
-    if (motion === 'spin') loop.set(withRepeat(withTiming(1, { duration: 2400 - percent * 18, easing: Easing.linear }), -1));
-    else if (motion) loop.set(withRepeat(withTiming(1, { duration: motion === 'pulse' ? 900 : 300, easing: Easing.inOut(Easing.quad) }), -1, true));
-    return () => cancelAnimation(loop);
-  }, [motion, percent, loop]);
 
   useEffect(() => {
     glow.set(withTiming(isOn ? 1 : 0, { duration: 400 }));
@@ -611,17 +593,13 @@ function DeviceIcon({ entity, isOn, icon, rgb: [r, g, b], size, dim }: {
     was.current = isOn;
   }, [isOn, still, glow, pop]);
 
-  const moving = useAnimatedStyle(() => ({
-    transform: [
-      { scale: pop.value * (motion === 'pulse' ? 1 + loop.value * 0.14 : 1) },
-      { rotate: motion === 'spin' ? `${loop.value * 360}deg` : motion === 'wiggle' ? `${(loop.value - 0.5) * 18}deg` : '0deg' },
-    ],
-  }));
-  const halo = useAnimatedStyle(() => ({ opacity: glow.value }));
+  const popped = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
+  // A TV's halo flickers with its screen.
+  const halo = useAnimatedStyle(() => ({ opacity: glow.value * (kind === 'flicker' ? 0.3 + 0.5 * loop.value : 1) }));
   const brightness = (entity.attributes.brightness ?? 255) / 255;
   return (
     <View style={{ width: size * 1.4, height: size * 1.4, alignItems: 'center', justifyContent: 'center' }}>
-      {domain === 'light' && (
+      {(kind === 'glow' || kind === 'flicker') && (
         <Animated.View
           style={[
             styles.halo,
@@ -637,8 +615,10 @@ function DeviceIcon({ entity, isOn, icon, rgb: [r, g, b], size, dim }: {
           ]}
         />
       )}
-      <Animated.View style={moving}>
-        <SymbolView name={icon} size={size} tintColor={isOn ? `rgb(${r},${g},${b})` : dim ? '#ffffff55' : '#fff'} />
+      <Animated.View style={popped}>
+        <Animated.View style={motion}>
+          <SymbolView name={icon} size={size} tintColor={isOn ? `rgb(${r},${g},${b})` : dim ? '#ffffff55' : '#fff'} />
+        </Animated.View>
       </Animated.View>
     </View>
   );

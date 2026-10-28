@@ -454,6 +454,8 @@ export const IPAD_SOUNDS = [
 /** What the iPad plays, in order, until you pick your own. */
 export const IPAD_PLAYLIST = ['creaky_door', 'monster_growl', 'evil_laugh'];
 export const HALLOWEEN_EVENT = 'smarthome_halloween';
+/** A porch light's usual yellowish white, in kelvin. */
+export const WARM_WHITE = 2700;
 // Also recorded for the iPad by scripts/make-halloween-sounds.py: rerun it after changing these.
 const LINES = ['I… see… you.', 'Come closer…', 'Take one… if you dare.', 'Happy Halloween!'];
 
@@ -488,6 +490,19 @@ export async function setHalloween(creds: Creds, h: Halloween, entities: HassEnt
       { action: 'scene.create', data: { scene_id: 'halloween_before', snapshot_entities: h.lights } },
       { repeat: { count: 5, sequence: [colour([255, 90, 0]), { delay: { milliseconds: 300 } }, colour([150, 0, 255]), { delay: { milliseconds: 300 } }] } },
       { action: 'scene.turn_on', target: { entity_id: 'scene.halloween_before' } },
+      // Govee's cloud can land a late orange after the restore: a few seconds on, the lights that are on go back to
+      // warm white.
+      { delay: { seconds: 3 } },
+      {
+        if: [{ condition: 'template', value_template: "{{ halloween.lights | select('is_state', 'on') | list | count > 0 }}" }],
+        then: [
+          {
+            action: 'light.turn_on',
+            target: { entity_id: "{{ halloween.lights | select('is_state', 'on') | list }}" },
+            data: { color_temp_kelvin: WARM_WHITE },
+          },
+        ],
+      },
     ],
   };
   const sound = h.echo && {

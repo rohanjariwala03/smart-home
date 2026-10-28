@@ -8,6 +8,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import { Chip } from '@/components/chip';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { WARM_WHITE } from '@/automations';
 import { useHA } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -22,7 +23,7 @@ const PRESETS: [number, number][] = [
   [0, 100], [20, 100], [35, 100], [55, 100], [100, 100], [160, 100],
   [190, 100], [220, 100], [250, 100], [275, 100], [300, 100], [330, 100],
 ];
-const WHITES: [string, number][] = [['Warm', 2700], ['Neutral', 4000], ['Daylight', 5000], ['Cool', 6500]];
+const WHITES: [string, number][] = [['Warm', WARM_WHITE], ['Neutral', 4000], ['Daylight', 5000], ['Cool', 6500]];
 const SEND_EVERY = 400; // ms while dragging; the Govee cloud rate-limits
 
 /** Tanner Helland's kelvin → RGB approximation (same as the script's). */
@@ -84,11 +85,17 @@ export function LightColour({ entity }: { entity: HassEntity }) {
   const turnOn = (data: object) => call('light', 'turn_on', { entity_id: entity.entity_id, ...data });
   return (
     <View style={styles.gap}>
-      {tabs.length > 1 && (
-        <View style={styles.wrap}>
-          {tabs.map((t) => <Chip key={t} label={t} selected={tab === t} onPress={() => setTab(t)} />)}
-        </View>
-      )}
+      <View style={styles.wrap}>
+        {tabs.length > 1 && tabs.map((t) => <Chip key={t} label={t} selected={tab === t} onPress={() => setTab(t)} />)}
+        {white && (
+          <Chip
+            icon="lightbulb.fill"
+            label="Warm white"
+            selected={a.color_mode === 'color_temp' && Math.abs((a.color_temp_kelvin ?? 0) - WARM_WHITE) < 150}
+            onPress={() => (setTab('White'), turnOn({ color_temp_kelvin: WARM_WHITE }))}
+          />
+        )}
+      </View>
       {tab === 'Colour' && <Wheel entity={entity} turnOn={turnOn} />}
       {tab === 'White' && <Whites entity={entity} turnOn={turnOn} />}
       {tab === 'Scenes' && <Scenes scenes={scenes} current={a.effect} pick={(effect) => turnOn({ effect })} />}

@@ -8,6 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { byDomain, useHA } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
+import { isPad } from '@/orientation';
 
 // Today's weather from Home Assistant's weather entity (Met.no by default), inspired by Apple's Weather app.
 
@@ -140,11 +141,11 @@ export function WeatherSheet({ onClose }: { onClose: () => void }) {
     a.visibility != null && { icon: 'eye.fill', title: 'Visibility', value: `${Math.round(a.visibility)}`, unit: a.visibility_unit },
     a.pressure != null && { icon: 'gauge.with.dots.needle.33percent', title: 'Pressure', value: `${Math.round(a.pressure)}`, unit: a.pressure_unit },
   ].filter((d): d is { icon: SFSymbol; title: string; value: string; unit?: string; note?: string } => !!d);
-  const cols = w >= 560 ? 3 : 2;
+  const cols = w >= 900 ? 4 : w >= 560 ? 3 : 2;
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={['portrait', 'landscape']} onRequestClose={onClose}>
-      <ThemedView style={styles.flex}>
+    <Modal visible animationType="slide" presentationStyle={isPad ? 'fullScreen' : 'pageSheet'} supportedOrientations={['portrait', 'landscape']} onRequestClose={onClose}>
+      <ThemedView style={[styles.flex, isPad && styles.full]}>
         <View style={styles.header}>
           <View style={styles.flex}>
             <ThemedText type="subtitle">Today</ThemedText>
@@ -255,6 +256,7 @@ const styles = StyleSheet.create({
   section: { padding: Spacing.three, borderRadius: 20, gap: Spacing.two },
   cardTemp: { fontSize: 28, fontWeight: '300', lineHeight: 34 },
   header: { flexDirection: 'row', alignItems: 'flex-start', padding: Spacing.three },
+  full: { paddingTop: Spacing.five, paddingHorizontal: Spacing.four },
   body: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.five, gap: Spacing.three },
   hero: { borderRadius: 24, padding: 20, gap: 18 },
   temp: { fontSize: 80, lineHeight: 92, fontWeight: '200', letterSpacing: -3, fontVariant: ['tabular-nums'] },

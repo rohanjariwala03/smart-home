@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 
 import { climateLook } from '@/climate';
+import { tintOf, useIconMotion } from '@/components/icon-motion';
 import { until, useTimer } from '@/components/device-extras';
 import { VACUUM_STATE } from '@/components/device-sheet';
 import { ThemedText } from '@/components/themed-text';
@@ -70,9 +71,6 @@ export const allDevices = (entities: HassEntities, registry: Record<string, Devi
 /** Two tiles per row, edge to edge inside the screen padding. */
 export const tileWidth = (screenWidth: number) => (screenWidth - Spacing.three * 2 - GAP) / 2;
 
-// The colour a device glows in when on (a light uses its own colour).
-const TINT: Record<string, number[]> = { fan: [0, 188, 212], vacuum: [43, 182, 115], media_player: [124, 131, 253] };
-
 /**
  * What a device tile shows and does: on or off (the tapped position until HA confirms), its state line, colour and
  * icon. A thermostat has no on/off tap (`toggle` is undefined): it glows while heating or cooling and opens its sheet.
@@ -86,7 +84,9 @@ export function useDevice(entity: HassEntity) {
   const echo = isEcho(entity);
   const shown = useOptimistic(entity, vacuum ? entity.state === 'cleaning' : echo ? entity.state === 'playing' : active(entity));
   const isOn = shown.isOn;
-  const [r, g, b] = (entity.attributes.rgb_color as number[] | undefined) ?? TINT[domainOf(entity)] ?? AMBER;
+  const chosen = ICON_CHOICES.find((c) => c.mdi === entity.attributes.icon)?.symbol;
+  const icon: SFSymbol = chosen ?? (echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power'));
+  const [r, g, b] = (entity.attributes.rgb_color as number[] | undefined) ?? tintOf(icon) ?? AMBER;
   const brightness: number | undefined = entity.attributes.brightness;
   const state =
     off ? 'Unavailable'
@@ -113,8 +113,6 @@ export function useDevice(entity: HassEntity) {
         : call(domainOf(entity), isOn ? 'turn_off' : 'turn_on', { entity_id: entity.entity_id }),
     );
   };
-  const chosen = ICON_CHOICES.find((c) => c.mdi === entity.attributes.icon)?.symbol;
-  const icon: SFSymbol = chosen ?? (echo ? 'homepod.fill' : (ICONS[domainOf(entity)] ?? 'power'));
   return { off, isOn, state, timer, rgb: [r, g, b], icon, toggle };
 }
 
@@ -126,6 +124,7 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
   const theme = useTheme();
   const { off, isOn, state, timer, rgb: [r, g, b], icon, toggle: flip } = useDevice(entity);
   const reading: number | undefined = domainOf(entity) === 'climate' && !off ? entity.attributes.current_temperature : undefined;
+  const { style: motion } = useIconMotion(icon, entity, isOn);
 
   const progress = useSharedValue(isOn ? 1 : 0);
   const pop = useSharedValue(1);
@@ -170,11 +169,9 @@ export function Tile({ entity, width, onSettings }: { entity: HassEntity; width:
             // A thermostat shows the temperature instead of an icon.
             <ThemedText style={[styles.reading, { color: isOn ? `rgb(${r},${g},${b})` : theme.text }]}>{Math.round(reading)}°</ThemedText>
           ) : (
-            <SymbolView
-              name={icon}
-              size={18}
-              tintColor={isOn ? `rgb(${r},${g},${b})` : theme.textSecondary}
-            />
+            <Animated.View style={motion}>
+              <SymbolView name={icon} size={18} tintColor={isOn ? `rgb(${r},${g},${b})` : theme.textSecondary} />
+            </Animated.View>
           )}
         </Animated.View>
       </Pressable>

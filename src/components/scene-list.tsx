@@ -7,7 +7,7 @@ import { SceneEditor } from '@/components/scene-editor';
 import { Card } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { byDomain, name, useHA } from '@/ha';
+import { name, scenesOf, useHA } from '@/ha';
 import { isAppScene, runScene } from '@/scenes';
 
 // Scenes made here (HA scripts, see src/scenes.ts) plus any scene or script made in Home Assistant.
@@ -32,7 +32,7 @@ export function SceneList() {
         </ThemedText>
         {creds && <Chip icon="plus" label="New scene" onPress={() => setEditing(true)} />}
       </View>
-      {byDomain(entities, 'scene', 'script').map((e) => (
+      {scenesOf(entities).map((e) => (
         <Pressable key={e.entity_id} accessibilityRole="button" accessibilityLabel={`Run ${name(e)}`} onPress={() => run(e.entity_id)}>
           {({ pressed }) => (
             <Card dim={pressed || running === e.entity_id}>
