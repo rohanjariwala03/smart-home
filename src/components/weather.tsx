@@ -127,7 +127,7 @@ export function WeatherSheet({ onClose }: { onClose: () => void }) {
   const today = daily[0];
   // The hours left today; late in the evening, at least the next six.
   const midnight = new Date().setHours(24, 0, 0, 0);
-  const ahead = hourly.filter((h) => +new Date(h.datetime) > Date.now() - 3600_000);
+  const ahead = hourly.filter((h) => +new Date(h.datetime) > +new Date() - 3600_000);
   const left = ahead.filter((h) => +new Date(h.datetime) < midnight);
   const hours = left.length >= 6 ? left : ahead.slice(0, 6);
   const rain = Math.max(0, ...left.map((h) => h.precipitation_probability ?? 0));
