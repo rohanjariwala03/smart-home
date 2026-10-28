@@ -9,6 +9,7 @@ import {
   HALLOWEEN_DIR,
   HALLOWEEN_ID,
   HALLOWEEN_SOUNDS,
+  IPAD_PLAYLIST,
   IPAD_SOUNDS,
   HALLOWEEN_TALLY,
   halloweenOf,
@@ -103,7 +104,7 @@ function HalloweenSetup() {
   const echoes = players(entities, devices).filter(isEcho);
   const h: Halloween = draft ??
     saved ?? { cameras: [], lights: [], ipad: true, sounds: HALLOWEEN_SOUNDS.map(([id]) => id), say: true, notify: notify[0] };
-  const ipadSounds = h.ipadSounds ?? IPAD_SOUNDS.map(([id]) => id);
+  const ipadSounds = h.ipadSounds ?? IPAD_PLAYLIST;
   const edit = (next: Partial<Halloween>) => setDraft({ ...h, ipadSounds, ...next });
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   const run = async (p: () => Promise<unknown>) => {
@@ -139,18 +140,32 @@ function HalloweenSetup() {
       </View>
       {h.ipad && (
         <>
-          <ThemedText type="small" themeColor="textSecondary">The iPad’s sounds (one at random; picking one plays it here)</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            The iPad plays these one after another, in the order you pick them (picking one plays it here)
+          </ThemedText>
           <View style={styles.row}>
-            {IPAD_SOUNDS.map(([id, label]) => (
-              <Chip
-                key={id}
-                icon={ipadSounds.includes(id) ? 'speaker.wave.2.fill' : 'speaker.slash'}
-                label={label}
-                selected={ipadSounds.includes(id)}
-                onPress={() => (ipadSounds.includes(id) || preview(SOUND_FILES[id]), edit({ ipadSounds: toggle(ipadSounds, id) }))}
-              />
-            ))}
+            {IPAD_SOUNDS.map(([id, label]) => {
+              const at = ipadSounds.indexOf(id);
+              return (
+                <Chip
+                  key={id}
+                  label={at < 0 ? label : `${at + 1}. ${label}`}
+                  selected={at >= 0}
+                  onPress={() => (at < 0 && playAll([SOUND_FILES[id]]), edit({ ipadSounds: toggle(ipadSounds, id) }))}
+                />
+              );
+            })}
           </View>
+          {ipadSounds.length > 0 && (
+            <View style={styles.row}>
+              <Chip
+                icon="play.fill"
+                label={`Play all (${Math.round(ipadSounds.reduce((s, id) => s + (SECONDS[id] ?? 0), 0) + (h.say ? 2.5 : 0))} s)`}
+                onPress={() => playAll([...ipadSounds.map((id) => SOUND_FILES[id]), ...(h.say ? [LINE_FILES[0]] : [])])}
+              />
+              <Chip icon="xmark" label="Clear" onPress={() => edit({ ipadSounds: [] })} />
+            </View>
+          )}
         </>
       )}
       {h.echo && (
@@ -183,7 +198,7 @@ function HalloweenSetup() {
         {auto && <Chip icon="xmark" label="Turn off" disabled={busy} onPress={() => run(() => removeHalloween(creds))} />}
       </View>
       <ThemedText type="small" themeColor="textSecondary">
-        Runs on Oct 31 from 4 to 11 PM and comes back next year. One group per 45 seconds; the iPad wall shows the count
+        Runs on Oct 31 from 4 to 11 PM and comes back next year. Once a minute at most (pictures keep coming); the iPad wall shows the count
         and has a button for a group the camera misses.
       </ThemedText>
       {note && <ThemedText type="small" style={styles.error}>{note}</ThemedText>}
@@ -193,11 +208,24 @@ function HalloweenSetup() {
 
 // The iPad's sounds and spoken lines (made by scripts/make-halloween-sounds.py from CC0 recordings).
 const SOUND_FILES: Record<string, number> = {
+  creaky_door: require('@/assets/sounds/creaky_door.m4a'),
+  heartbeat: require('@/assets/sounds/heartbeat.m4a'),
+  thunder: require('@/assets/sounds/thunder.m4a'),
   evil_laugh: require('@/assets/sounds/evil_laugh.m4a'),
   evil_laugh_2: require('@/assets/sounds/evil_laugh_2.m4a'),
   witch_cackle: require('@/assets/sounds/witch_cackle.m4a'),
+  ghost: require('@/assets/sounds/ghost.m4a'),
+  scream: require('@/assets/sounds/scream.m4a'),
+  haunted_choir: require('@/assets/sounds/haunted_choir.m4a'),
   monster_growl: require('@/assets/sounds/monster_growl.m4a'),
   monster_snarl: require('@/assets/sounds/monster_snarl.m4a'),
+  monster_roar: require('@/assets/sounds/monster_roar.m4a'),
+  monster_breath: require('@/assets/sounds/monster_breath.m4a'),
+};
+// Their lengths, for the setup's "Play all (n s)".
+const SECONDS: Record<string, number> = {
+  creaky_door: 5, heartbeat: 7, thunder: 6, evil_laugh: 3.2, evil_laugh_2: 2.5, witch_cackle: 1.8, ghost: 5, scream: 3.7,
+  haunted_choir: 7, monster_growl: 5.2, monster_snarl: 5.2, monster_roar: 5.2, monster_breath: 5.2,
 };
 const LINE_FILES = [
   require('@/assets/sounds/line0.m4a'),
@@ -217,9 +245,17 @@ function play(file: number) {
   });
 }
 
-/** A sound on this device, for choosing (silent switch or not). */
-function preview(file: number) {
-  setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' }).then(() => play(file));
+/** Sounds one after another on this device (silent switch or not); one run at a time. */
+let playing = false;
+async function playAll(files: number[]) {
+  if (playing) return;
+  playing = true;
+  try {
+    await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
+    for (const file of files) await play(file);
+  } finally {
+    playing = false;
+  }
 }
 
 /** On the iPad: plays the Halloween automation's sound and line when it fires (a visit, Try it, or the board's button). */
@@ -227,18 +263,10 @@ export function HalloweenSounds() {
   const { conn } = useHA();
   useEffect(() => {
     if (!conn) return;
-    let busy = false;
-    const sub = conn.subscribeEvents<{ data: { sound?: string; line?: string | number } }>(async ({ data }) => {
-      if (busy) return;
-      busy = true;
-      try {
-        await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
-        if (data.sound && SOUND_FILES[data.sound]) await play(SOUND_FILES[data.sound]);
-        const line = LINE_FILES[Number(data.line)];
-        if (line) await play(line);
-      } finally {
-        busy = false;
-      }
+    // `sound` is from setups saved before the playlist.
+    const sub = conn.subscribeEvents<{ data: { sounds?: string[]; sound?: string; line?: string | number } }>(({ data }) => {
+      const ids = data.sounds ?? (data.sound ? [data.sound] : []);
+      playAll([...ids.map((id) => SOUND_FILES[id]).filter(Boolean), LINE_FILES[Number(data.line)]].filter((f) => f != null));
     }, HALLOWEEN_EVENT);
     return () => void sub.then((unsub) => unsub(), () => {});
   }, [conn]);

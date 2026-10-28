@@ -437,12 +437,22 @@ export const HALLOWEEN_SOUNDS = [
 ] as const;
 /** The iPad's own sounds (assets/sounds, real recordings), separate from the Echo's Alexa sounds above. */
 export const IPAD_SOUNDS = [
+  ['creaky_door', 'Creaky door'],
+  ['heartbeat', 'Heartbeat'],
+  ['thunder', 'Thunder'],
   ['evil_laugh', 'Evil laugh'],
   ['evil_laugh_2', 'Evil laugh 2'],
   ['witch_cackle', 'Witch cackle'],
+  ['ghost', 'Ghost'],
+  ['scream', 'Scream'],
+  ['haunted_choir', 'Haunted choir'],
   ['monster_growl', 'Monster growl'],
   ['monster_snarl', 'Monster snarl'],
+  ['monster_roar', 'Monster roar'],
+  ['monster_breath', 'Monster breath'],
 ] as const;
+/** What the iPad plays, in order, until you pick your own. */
+export const IPAD_PLAYLIST = ['creaky_door', 'monster_growl', 'evil_laugh'];
 export const HALLOWEEN_EVENT = 'smarthome_halloween';
 // Also recorded for the iPad by scripts/make-halloween-sounds.py: rerun it after changing these.
 const LINES = ['I… see… you.', 'Come closer…', 'Take one… if you dare.', 'Happy Halloween!'];
@@ -452,7 +462,7 @@ export type Halloween = {
   lights: string[];
   echo?: string; // Alexa Media Player speaker (the porch one)
   ipad?: boolean; // the iPad by the door plays its own sounds, through whatever speaker is paired with it
-  ipadSounds?: string[];
+  ipadSounds?: string[]; // played one after another, in this order
   sounds: string[];
   say: boolean; // a spoken line after the sound
   notify?: string; // the morning-after recap
@@ -466,10 +476,11 @@ export async function ensureTally(conn: Connection, entities: HassEntities) {
 
 /**
  * A visit: count it (only on the night itself; "Try it" just plays), flicker the lights orange and purple and put them
- * back, play a random sound and line on the Echo. Then 45 s before the next, so one group on the path counts once.
+ * back, play a random sound and line on the Echo. Then a minute before the next, so one group on the path counts once
+ * and the sounds don't play over and over (pictures are a separate automation and keep coming).
  */
 export async function setHalloween(creds: Creds, h: Halloween, entities: HassEntities) {
-  h = { ...h, ipadSounds: h.ipadSounds ?? IPAD_SOUNDS.map(([id]) => id) }; // set up before the iPad had its own
+  h = { ...h, ipadSounds: h.ipadSounds ?? IPAD_PLAYLIST }; // set up before the iPad had its own
   const motions = h.cameras.map((c) => `binary_sensor.${c.split('.')[1]}_motion`).filter((m) => entities[m]);
   const colour = (rgb: number[]) => ({ action: 'light.turn_on', target: { entity_id: h.lights }, data: { rgb_color: rgb, brightness_pct: 100 } });
   const lights = h.lights.length && {
@@ -490,7 +501,7 @@ export async function setHalloween(creds: Creds, h: Halloween, entities: HassEnt
   // The iPad listens for this event (src/components/halloween.tsx) and plays its own copy of the sound and line.
   const ipad = h.ipad && {
     event: HALLOWEEN_EVENT,
-    event_data: { sound: h.ipadSounds?.length ? '{{ halloween.ipadSounds | random }}' : '', line: h.say ? `{{ range(${LINES.length}) | random }}` : -1 },
+    event_data: { sounds: h.ipadSounds, line: h.say ? `{{ range(${LINES.length}) | random }}` : -1 },
   };
   await rest(creds, 'POST', HALLOWEEN_ID, {
     alias: 'Halloween: trick-or-treaters',
@@ -501,7 +512,7 @@ export async function setHalloween(creds: Creds, h: Halloween, entities: HassEnt
     actions: [
       { if: [{ condition: 'template', value_template: TONIGHT }], then: [{ action: 'input_text.set_value', target: { entity_id: HALLOWEEN_TALLY }, data: { value: BUMP } }] },
       ...([lights, sound, ipad].some(Boolean) ? [{ parallel: [lights, sound, ipad].filter(Boolean) }] : []),
-      { delay: { seconds: 45 } }, // ponytail: one visit per 45 s; two groups closer than that count once
+      { delay: { seconds: 60 } }, // one visit a minute: no sounds or flicker meanwhile, and two groups that close count once
     ],
     mode: 'single',
     max_exceeded: 'silent',
