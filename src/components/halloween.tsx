@@ -9,6 +9,7 @@ import {
   HALLOWEEN_DIR,
   HALLOWEEN_ID,
   HALLOWEEN_SOUNDS,
+  IPAD_SOUNDS,
   HALLOWEEN_TALLY,
   halloweenOf,
   removeHalloween,
@@ -102,7 +103,8 @@ function HalloweenSetup() {
   const echoes = players(entities, devices).filter(isEcho);
   const h: Halloween = draft ??
     saved ?? { cameras: [], lights: [], ipad: true, sounds: HALLOWEEN_SOUNDS.map(([id]) => id), say: true, notify: notify[0] };
-  const edit = (next: Partial<Halloween>) => setDraft({ ...h, ...next });
+  const ipadSounds = h.ipadSounds ?? IPAD_SOUNDS.map(([id]) => id);
+  const edit = (next: Partial<Halloween>) => setDraft({ ...h, ipadSounds, ...next });
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   const run = async (p: () => Promise<unknown>) => {
     setBusy(true);
@@ -135,13 +137,34 @@ function HalloweenSetup() {
           <Chip key={e.entity_id} icon="homepod.fill" label={name(e)} selected={h.echo === e.entity_id} onPress={() => edit({ echo: h.echo === e.entity_id ? undefined : e.entity_id })} />
         ))}
       </View>
+      {h.ipad && (
+        <>
+          <ThemedText type="small" themeColor="textSecondary">The iPad’s sounds (one at random; picking one plays it here)</ThemedText>
+          <View style={styles.row}>
+            {IPAD_SOUNDS.map(([id, label]) => (
+              <Chip
+                key={id}
+                icon={ipadSounds.includes(id) ? 'speaker.wave.2.fill' : 'speaker.slash'}
+                label={label}
+                selected={ipadSounds.includes(id)}
+                onPress={() => (ipadSounds.includes(id) || preview(SOUND_FILES[id]), edit({ ipadSounds: toggle(ipadSounds, id) }))}
+              />
+            ))}
+          </View>
+        </>
+      )}
+      {h.echo && (
+        <>
+          <ThemedText type="small" themeColor="textSecondary">The Echo’s sounds</ThemedText>
+          <View style={styles.row}>
+            {HALLOWEEN_SOUNDS.map(([id, label]) => (
+              <Chip key={id} label={label} selected={h.sounds.includes(id)} onPress={() => edit({ sounds: toggle(h.sounds, id) })} />
+            ))}
+          </View>
+        </>
+      )}
       <View style={styles.row}>
-        {HALLOWEEN_SOUNDS.map(([id, label]) => (
-          <Chip key={id} label={label} selected={h.sounds.includes(id)} onPress={() => edit({ sounds: toggle(h.sounds, id) })} />
-        ))}
-      </View>
-      <View style={styles.row}>
-        <ThemedText style={styles.flex}>Then say “Happy Halloween!” or similar</ThemedText>
+        <ThemedText style={styles.flex}>Then a voice says “I… see… you.” or similar</ThemedText>
         <Switch value={h.say} onValueChange={(say) => edit({ say })} />
       </View>
       {notify.length > 0 && (
@@ -168,11 +191,13 @@ function HalloweenSetup() {
   );
 }
 
-// The iPad's copies of the Alexa sounds and the spoken lines (made by scripts/make-halloween-sounds.py).
+// The iPad's sounds and spoken lines (made by scripts/make-halloween-sounds.py from CC0 recordings).
 const SOUND_FILES: Record<string, number> = {
-  horror_10: require('@/assets/sounds/horror_10.m4a'),
-  squeaky_12: require('@/assets/sounds/squeaky_12.m4a'),
-  amzn_sfx_wolf_howl_02: require('@/assets/sounds/amzn_sfx_wolf_howl_02.m4a'),
+  evil_laugh: require('@/assets/sounds/evil_laugh.m4a'),
+  evil_laugh_2: require('@/assets/sounds/evil_laugh_2.m4a'),
+  witch_cackle: require('@/assets/sounds/witch_cackle.m4a'),
+  monster_growl: require('@/assets/sounds/monster_growl.m4a'),
+  monster_snarl: require('@/assets/sounds/monster_snarl.m4a'),
 };
 const LINE_FILES = [
   require('@/assets/sounds/line0.m4a'),
@@ -190,6 +215,11 @@ function play(file: number) {
     const sub = player.addListener('playbackStatusUpdate', (s) => s.didJustFinish && finish());
     player.play();
   });
+}
+
+/** A sound on this device, for choosing (silent switch or not). */
+function preview(file: number) {
+  setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' }).then(() => play(file));
 }
 
 /** On the iPad: plays the Halloween automation's sound and line when it fires (a visit, Try it, or the board's button). */

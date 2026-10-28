@@ -1,15 +1,55 @@
-# Makes the iPad's Halloween sounds in assets/sounds/: three effects synthesised here (named after the Alexa sounds
-# they stand in for) and the spoken lines in a deep, slow macOS voice with an echo. macOS only (say, afconvert);
-# pure stdlib otherwise. Rerun after changing LINES (keep them in step with LINES in src/automations.ts).
-import math, os, random, struct, subprocess, tempfile, wave
+# Makes the iPad's Halloween sounds in assets/sounds/ (macOS only: say, afconvert; pure stdlib otherwise).
+#
+#   python3 scripts/make-halloween-sounds.py <folder with the .ogg files below>
+#
+# Effects: CC0 (public domain) recordings from OpenGameArt.org, trimmed, given an outdoor echo and levelled:
+#   laugh-evil-1_0.ogg        https://opengameart.org/content/evil-laugh        (AntumDeluge)
+#   evil_laugh_02_0.ogg       https://opengameart.org/content/evil-laugh-2      (AntumDeluge)
+#   witch_cackle-1_0.ogg      https://opengameart.org/content/witch-cackle
+#   monsters-snarls-3_0.ogg   https://opengameart.org/content/monster-snarls    (Darsycho)
+#   monster-snarl-attack.ogg  https://opengameart.org/content/monster-snarls    (Darsycho)
+# Spoken lines: a deep voice and a whisper together, with a long echo. Keep LINES in step with src/automations.ts.
+import os, struct, subprocess, sys, tempfile, wave
 
-RATE = 22050
+RATE = 44100
 OUT = 'assets/sounds'
-LINES = ['Happy Halloween!', 'Trick or treat!', 'Take one… if you dare.', 'Welcome, little monsters.']
-random.seed(31)
+LINES = ['I… see… you.', 'Come closer…', 'Take one… if you dare.', 'Happy Halloween!']
+EFFECTS = {  # name: (source file, seconds kept at most)
+    'evil_laugh': ('laugh-evil-1_0.ogg', 4.5),
+    'evil_laugh_2': ('evil_laugh_02_0.ogg', 4.5),
+    'witch_cackle': ('witch_cackle-1_0.ogg', 4.5),
+    'monster_growl': ('monsters-snarls-3_0.ogg', 4.5),
+    'monster_snarl': ('monster-snarl-attack.ogg', 4.5),
+}
+OUTDOOR = ((0.21, 0.4), (0.43, 0.22), (0.68, 0.1))
+CAVE = ((0.12, 0.5), (0.29, 0.35), (0.47, 0.25), (0.71, 0.15), (0.97, 0.08))
 
 
-def echo(x, taps=((0.18, 0.45), (0.37, 0.25), (0.6, 0.12))):
+def read(path):
+    """Any audio file → mono samples at RATE, -1…1."""
+    tmp = os.path.join(tempfile.gettempdir(), 'halloween-in.wav')
+    subprocess.run(['afconvert', '-f', 'WAVE', '-d', f'LEI16@{RATE}', '-c', '1', path, tmp], check=True)
+    data = open(tmp, 'rb').read()  # afconvert writes WAVE_FORMAT_EXTENSIBLE, which `wave` can't read
+    at = data.index(b'data') + 8
+    raw = data[at:at + struct.unpack('<I', data[at - 4:at])[0]]
+    return [v / 32768 for v in struct.unpack(f'<{len(raw) // 2}h', raw)]
+
+
+def loudest(x, seconds):
+    """The loudest stretch of `seconds` (by energy), faded in and out."""
+    n = int(seconds * RATE)
+    if len(x) > n:
+        hop, best, at = RATE // 10, -1.0, 0
+        for i in range(0, len(x) - n, hop):
+            e = sum(v * v for v in x[i:i + n:8])
+            if e > best:
+                best, at = e, i
+        x = x[at:at + n]
+    fade = int(0.15 * RATE)
+    return [v * min(1, i / fade, (len(x) - i) / fade) for i, v in enumerate(x)]
+
+
+def echo(x, taps):
     y = x + [0.0] * int(RATE * taps[-1][0] + 1)
     for d, g in taps:
         n = int(RATE * d)
@@ -23,84 +63,33 @@ def save(name, x):
     tmp = os.path.join(tempfile.gettempdir(), name + '.wav')
     with wave.open(tmp, 'wb') as w:
         w.setnchannels(1), w.setsampwidth(2), w.setframerate(RATE)
-        w.writeframes(b''.join(struct.pack('<h', int(v / peak * 0.89 * 32767)) for v in x))
-    subprocess.run(['afconvert', '-f', 'm4af', '-d', 'aac', '-b', '64000', tmp, f'{OUT}/{name}.m4a'], check=True)
+        w.writeframes(b''.join(struct.pack('<h', int(v / peak * 0.95 * 32767)) for v in x))
+    subprocess.run(['afconvert', '-f', 'm4af', '-d', 'aac', '-b', '96000', tmp, f'{OUT}/{name}.m4a'], check=True)
 
 
-def tone(freq, seconds, harmonics, env):
-    """A voice-like tone: `freq(t)` in Hz, `env(t)` 0–1, harmonics as (multiple, level)."""
-    phase, out = 0.0, []
-    for i in range(int(seconds * RATE)):
-        t = i / RATE
-        phase += 2 * math.pi * freq(t) / RATE
-        out.append(env(t) * sum(level * math.sin(k * phase) for k, level in harmonics))
-    return out
+def say(voice, rate, text):
+    tmp = os.path.join(tempfile.gettempdir(), 'halloween-say.aiff')
+    subprocess.run(['say', '-v', voice, '-r', str(rate), '-o', tmp, text], check=True)
+    return read(tmp)
 
 
-def lowpass_noise(seconds, smooth):
-    y, out = 0.0, []
-    for _ in range(int(seconds * RATE)):
-        y += smooth * (random.uniform(-1, 1) - y)
-        out.append(y)
-    return out
+def line(text):
+    deep = say('Ralph', 105, f'[[pbas 15]] {text}')
+    whisper = say('Whisper', 105, text)
+    lag = int(0.05 * RATE)
+    mix = [0.0] * max(len(deep), len(whisper) + lag)
+    for i, v in enumerate(deep):
+        mix[i] += v
+    for i, v in enumerate(whisper):
+        mix[i + lag] += 0.8 * v
+    return echo(mix, CAVE)
 
 
-def ramp(t, a, b):  # 0 before a, 1 after b, smooth between
-    return 0 if t <= a else 1 if t >= b else 0.5 - 0.5 * math.cos(math.pi * (t - a) / (b - a))
-
-
-def wolf():  # amzn_sfx_wolf_howl_02
-    L = 3.4
-    f = lambda t: 300 + 240 * ramp(t, 0, 0.7) + 30 * ramp(t, 0.7, 2.4) - 190 * ramp(t, 2.5, L) + 10 * math.sin(2 * math.pi * 5.5 * t) * ramp(t, 0.6, 1.0)
-    env = lambda t: ramp(t, 0, 0.35) * (1 - ramp(t, 2.6, L))
-    x = tone(f, L, [(1, 1), (2, 0.45), (3, 0.2), (4, 0.08)], env)
-    breath = lowpass_noise(L, 0.3)
-    return echo([v + 0.06 * b * env(i / RATE) for i, (v, b) in enumerate(zip(x, breath))])
-
-
-def creak():  # squeaky_12: a door's stick-slip creak, then it bangs shut
-    L, out = 2.9, [0.0] * int(2.9 * RATE)
-    t, rate = 0.05, 30.0
-    while t < 2.3:
-        rate = min(85, max(18, rate + random.uniform(-6, 6) + (55 - rate) * 0.04))
-        amp = 0.4 + 0.6 * math.sin(math.pi * t / 2.3) * random.uniform(0.7, 1)
-        f1 = 650 + rate * 6
-        for j in range(int(0.012 * RATE)):
-            s = j / RATE
-            v = amp * math.exp(-s * 450) * (math.sin(2 * math.pi * f1 * s) + 0.5 * math.sin(2 * math.pi * 2.1 * f1 * s))
-            i = int(t * RATE) + j
-            if i < len(out):
-                out[i] += v
-        t += 1 / rate
-    thud = lowpass_noise(0.5, 0.08)
-    for j, n in enumerate(thud):
-        s = j / RATE
-        out[int(2.35 * RATE) + j] += 1.6 * math.exp(-s * 12) * (math.sin(2 * math.pi * 55 * s) + 2 * n)
-    return echo(out, ((0.11, 0.3), (0.23, 0.15)))
-
-
-def ghost():  # horror_10: a moaning "ooooo" over wind
-    L = 4.0
-    f = lambda t: 170 + 90 * math.sin(math.pi * t / L) + 9 * math.sin(2 * math.pi * 4 * t) - 40 * ramp(t, 3.0, L)
-    env = lambda t: ramp(t, 0, 0.8) * (1 - ramp(t, 3.0, L)) * (0.75 + 0.25 * math.sin(2 * math.pi * 0.7 * t))
-    moan = tone(f, L, [(1, 1), (2, 0.25), (3, 0.06)], env)
-    wind = lowpass_noise(L, 0.02)
-    return echo([m + 1.8 * w * (0.4 + 0.6 * math.sin(math.pi * i / RATE / L)) for i, (m, w) in enumerate(zip(moan, wind))],
-                ((0.25, 0.5), (0.5, 0.3), (0.75, 0.15)))
-
-
-def line(i, text):
-    tmp = os.path.join(tempfile.gettempdir(), f'line{i}-voice.wav')
-    subprocess.run(['say', '-v', 'Ralph', '-r', '125', '-o', tmp, '--file-format=WAVE', f'--data-format=LEI16@{RATE}',
-                    f'[[pbas 22]] {text}'], check=True)
-    with wave.open(tmp) as w:
-        raw = w.readframes(w.getnframes())
-    return echo([v / 32768 for v in struct.unpack(f'<{len(raw) // 2}h', raw)])
-
-
+src = sys.argv[1]
 os.makedirs(OUT, exist_ok=True)
-save('amzn_sfx_wolf_howl_02', wolf())
-save('squeaky_12', creak())
-save('horror_10', ghost())
+for name in os.listdir(OUT):
+    os.remove(os.path.join(OUT, name))
+for name, (file, seconds) in EFFECTS.items():
+    save(name, echo(loudest(read(os.path.join(src, file)), seconds), OUTDOOR))
 for i, text in enumerate(LINES):
-    save(f'line{i}', line(i, text))
+    save(f'line{i}', line(text))
