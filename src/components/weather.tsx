@@ -1,13 +1,15 @@
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import type { Connection, HassEntity } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { Spacing } from '@/constants/theme';
 import { byDomain, useHA } from '@/ha';
+import { useTheme } from '@/hooks/use-theme';
 
-// Today's weather the way Apple's Weather app shows it, from Home Assistant's weather entity (Met.no by default):
-// now, the details, the next 12 hours as a line, every hour, and the next days with their range.
+// Today's weather from Home Assistant's weather entity (Met.no by default), inspired by Apple's Weather app.
 
 export const SKY: Record<string, [string, SFSymbol]> = {
   sunny: ['Sunny', 'sun.max.fill'],
@@ -27,7 +29,7 @@ export const SKY: Record<string, [string, SFSymbol]> = {
 };
 export const sky = (condition?: string): [string, SFSymbol] => SKY[condition ?? ''] ?? [condition ?? '', 'cloud.fill'];
 
-// The panel takes the sky's colour, like Apple's backgrounds.
+// Cards take the sky's colour, like Apple's backgrounds.
 const BACKDROP: Record<string, string> = {
   sunny: '#2E6DB4',
   partlycloudy: '#3A6597',
@@ -74,7 +76,6 @@ export const useWeatherEntity = () => byDomain(useHA().entities, 'weather')[0] a
 
 const round = (n?: number) => (n == null ? '–' : `${Math.round(n)}`);
 const hour = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric' });
-const day = (iso: string, i: number) => (i === 0 ? 'Today' : new Date(iso).toLocaleDateString([], { weekday: 'short' }));
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
 /** Small card for the phone's Home: now, high and low. Tap for the full view. */
@@ -111,269 +112,172 @@ export function WeatherCard() {
   );
 }
 
-/** Today's weather in full, over a dimmed screen: tap outside or ✕ to close. */
+/** Today in detail, as a sheet like the app's others: now, the rest of today hour by hour, and the details. */
 export function WeatherSheet({ onClose }: { onClose: () => void }) {
-  const { conn } = useHA();
+  const { conn, entities } = useHA();
   const weather = useWeatherEntity();
   const hourly = useForecast(conn, weather?.entity_id, 'hourly');
   const daily = useForecast(conn, weather?.entity_id, 'daily');
-  const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const theme = useTheme();
+  const [w, setW] = useState(0);
   if (!weather) return null;
 
   const a = weather.attributes;
   const [label, icon] = sky(weather.state);
-  const panel = Math.min(width - 32, 1100);
-  const wide = panel >= 760;
   const today = daily[0];
-  const details: { icon: SFSymbol; title: string; value: string; unit?: string; note?: string }[] = [
-    a.humidity != null && { icon: 'humidity.fill' as SFSymbol, title: 'Humidity', value: `${Math.round(a.humidity)}%` },
+  // The hours left today; late in the evening, at least the next six.
+  const midnight = new Date().setHours(24, 0, 0, 0);
+  const ahead = hourly.filter((h) => +new Date(h.datetime) > Date.now() - 3600_000);
+  const left = ahead.filter((h) => +new Date(h.datetime) < midnight);
+  const hours = left.length >= 6 ? left : ahead.slice(0, 6);
+  const rain = Math.max(0, ...left.map((h) => h.precipitation_probability ?? 0));
+  const sun = entities['sun.sun']?.attributes;
+
+  const details = [
+    a.apparent_temperature != null && { icon: 'thermometer.medium', title: 'Feels like', value: `${round(a.apparent_temperature)}°` },
+    (today?.precipitation != null || left.length > 0) && {
+      icon: 'umbrella.fill',
+      title: 'Rain today',
+      value: `${rain}%`,
+      note: today?.precipitation ? `${today.precipitation} ${a.precipitation_unit ?? 'mm'} expected` : 'None expected',
+    },
     a.wind_speed != null && {
-      icon: 'wind' as SFSymbol,
+      icon: 'wind',
       title: 'Wind',
       value: `${Math.round(a.wind_speed)}`,
       unit: a.wind_speed_unit,
       note: a.wind_bearing != null ? `From the ${COMPASS[Math.round(a.wind_bearing / 45) % 8]}` : undefined,
     },
-    a.pressure != null && { icon: 'gauge.with.dots.needle.33percent' as SFSymbol, title: 'Pressure', value: `${Math.round(a.pressure)}`, unit: a.pressure_unit },
-    a.dew_point != null && { icon: 'thermometer.medium' as SFSymbol, title: 'Dew point', value: `${round(a.dew_point)}°` },
-    a.cloud_coverage != null && { icon: 'cloud.fill' as SFSymbol, title: 'Clouds', value: `${Math.round(a.cloud_coverage)}%` },
-    a.uv_index != null && { icon: 'sun.max.fill' as SFSymbol, title: 'UV index', value: `${Math.round(a.uv_index)}`, note: uvWord(a.uv_index) },
-    a.visibility != null && { icon: 'eye.fill' as SFSymbol, title: 'Visibility', value: `${Math.round(a.visibility)}`, unit: a.visibility_unit },
-    a.apparent_temperature != null && { icon: 'thermometer.sun.fill' as SFSymbol, title: 'Feels like', value: `${round(a.apparent_temperature)}°` },
+    a.humidity != null && { icon: 'humidity.fill', title: 'Humidity', value: `${Math.round(a.humidity)}%`, note: a.dew_point != null ? `Dew point ${round(a.dew_point)}°` : undefined },
+    a.uv_index != null && { icon: 'sun.max.fill', title: 'UV index', value: `${Math.round(a.uv_index)}`, note: uvWord(a.uv_index) },
+    sun?.next_rising && { icon: 'sunrise.fill', title: 'Sunrise', value: time(sun.next_rising) },
+    sun?.next_setting && { icon: 'sunset.fill', title: 'Sunset', value: time(sun.next_setting) },
+    a.cloud_coverage != null && { icon: 'cloud.fill', title: 'Clouds', value: `${Math.round(a.cloud_coverage)}%` },
+    a.visibility != null && { icon: 'eye.fill', title: 'Visibility', value: `${Math.round(a.visibility)}`, unit: a.visibility_unit },
+    a.pressure != null && { icon: 'gauge.with.dots.needle.33percent', title: 'Pressure', value: `${Math.round(a.pressure)}`, unit: a.pressure_unit },
   ].filter((d): d is { icon: SFSymbol; title: string; value: string; unit?: string; note?: string } => !!d);
-
-  const next12 = hourly.slice(0, 13);
-  const now = (
-    <View style={styles.now}>
-      <Text style={styles.place}>{a.friendly_name ?? 'Weather'}</Text>
-      <Text style={styles.updated}>Updated {new Date(weather.last_updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
-      <View style={styles.row}>
-        <Text style={styles.temp}>{round(a.temperature)}°</Text>
-        <SymbolView name={icon} size={48} type="multicolor" />
-      </View>
-      <Text style={styles.label}>{label}</Text>
-      {today && (
-        <Text style={styles.hilo}>
-          H: {round(today.temperature)}°   L: {round(today.templow)}°
-        </Text>
-      )}
-    </View>
-  );
-  const chart = next12.length > 1 && (
-    <Section title="Temperature, next 12 hours" icon="chart.xyaxis.line" style={styles.flex}>
-      <Line points={next12.map((h) => h.temperature ?? 0)} labels={next12.map((h, i) => (i % 3 === 0 ? (i === 0 ? 'Now' : hour(h.datetime)) : ''))} />
-    </Section>
-  );
-  const grid = details.length > 0 && (
-    <View style={[styles.grid, wide && styles.flex]}>
-      {details.map((d) => (
-        <View key={d.title} style={[styles.tile, { width: wide ? '23.5%' : '48.5%' }]}>
-          <View style={styles.row}>
-            <SymbolView name={d.icon} size={13} tintColor="rgba(255,255,255,0.6)" />
-            <Text style={styles.caption}>{d.title.toUpperCase()}</Text>
-          </View>
-          <Text style={styles.value} numberOfLines={1}>
-            {d.value}
-            {d.unit && <Text style={styles.unit}> {d.unit}</Text>}
-          </Text>
-          {d.note && <Text style={styles.note}>{d.note}</Text>}
-        </View>
-      ))}
-    </View>
-  );
-  const week = daily.length > 0 && (
-    <Section title={`${Math.min(daily.length, 7)}-day forecast`} icon="calendar" style={wide ? styles.flex : undefined}>
-      <Days days={daily.slice(0, 7)} />
-    </Section>
-  );
-  const hours = hourly.length > 0 && (
-    <Section title="Hourly forecast" icon="clock">
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hours}>
-        {hourly.slice(0, 24).map((h, i) => {
-          const [, hIcon] = sky(h.condition);
-          return (
-            <View key={h.datetime} style={styles.hour} accessible accessibilityLabel={`${i === 0 ? 'Now' : hour(h.datetime)}, ${round(h.temperature)} degrees, ${sky(h.condition)[0]}`}>
-              <Text style={styles.hourTime}>{i === 0 ? 'Now' : hour(h.datetime)}</Text>
-              <SymbolView name={hIcon} size={22} type="multicolor" />
-              <Text style={styles.hourTemp}>{round(h.temperature)}°</Text>
-              {!!h.precipitation_probability && <Text style={styles.rain}>{h.precipitation_probability}%</Text>}
-            </View>
-          );
-        })}
-      </ScrollView>
-    </Section>
-  );
+  const cols = w >= 560 ? 3 : 2;
 
   return (
-    <Modal visible transparent animationType="fade" supportedOrientations={['portrait', 'landscape']} onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close weather" accessibilityRole="button">
-        {/* The panel catches its own taps, so only the dimmed area closes. */}
-        <Pressable
-          onPress={() => {}}
-          accessible={false}
-          style={[styles.panel, { width: panel, maxHeight: height - insets.top - insets.bottom - 32, backgroundColor: BACKDROP[weather.state] ?? BACKDROP.cloudy }]}>
-          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={12} style={styles.close}>
-            <SymbolView name="xmark" size={14} tintColor="#fff" weight="bold" />
+    <Modal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={['portrait', 'landscape']} onRequestClose={onClose}>
+      <ThemedView style={styles.flex}>
+        <View style={styles.header}>
+          <View style={styles.flex}>
+            <ThemedText type="subtitle">Today</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} · updated{' '}
+              {time(weather.last_updated)}
+            </ThemedText>
+          </View>
+          <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>
+            <ThemedText type="linkPrimary">Done</ThemedText>
           </Pressable>
-          <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-            {wide ? (
-              <>
-                <View style={styles.columns}>
-                  {now}
-                  {chart}
-                </View>
-                <View style={styles.columns}>
-                  {grid}
-                  {week}
-                </View>
-                {hours}
-              </>
-            ) : (
-              <>
-                {now}
-                {hours}
-                {chart}
-                {week}
-                {grid}
-              </>
-            )}
-            {a.attribution && <Text style={styles.attribution}>{a.attribution}</Text>}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={styles.body} onLayout={(e) => setW(e.nativeEvent.layout.width - 2 * Spacing.three)}>
+          <View style={[styles.hero, { backgroundColor: BACKDROP[weather.state] ?? BACKDROP.cloudy }]}>
+            <View style={styles.row}>
+              <View style={styles.flex}>
+                <Text style={styles.temp}>{round(a.temperature)}°</Text>
+                <Text style={styles.label}>{label}</Text>
+              </View>
+              <SymbolView name={icon} size={72} type="multicolor" />
+            </View>
+            {today && <Range low={today.templow} high={today.temperature} now={a.temperature} />}
+          </View>
+
+          {hours.length > 0 && (
+            <Card title={left.length >= 6 ? 'Rest of today' : 'Next hours'} icon="clock">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hours}>
+                {hours.map((h, i) => (
+                  <View key={h.datetime} style={styles.hour} accessible accessibilityLabel={`${i === 0 ? 'Now' : hour(h.datetime)}, ${round(h.temperature)} degrees, ${sky(h.condition)[0]}`}>
+                    <ThemedText type="smallBold">{i === 0 ? 'Now' : hour(h.datetime)}</ThemedText>
+                    <SymbolView name={sky(h.condition)[1]} size={26} type="multicolor" />
+                    <ThemedText style={styles.hourTemp}>{round(h.temperature)}°</ThemedText>
+                    <Text style={styles.rain}>{h.precipitation_probability ? `${h.precipitation_probability}%` : ' '}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </Card>
+          )}
+
+          {w > 0 && (
+            <View style={styles.grid}>
+              {details.map((d) => (
+                <ThemedView key={d.title} type="backgroundElement" style={[styles.tile, { width: (w - Spacing.two * (cols - 1)) / cols }]}>
+                  <View style={styles.row}>
+                    <SymbolView name={d.icon} size={13} tintColor={theme.textSecondary} />
+                    <ThemedText type="small" themeColor="textSecondary">{d.title}</ThemedText>
+                  </View>
+                  <ThemedText style={styles.value} numberOfLines={1}>
+                    {d.value}
+                    {d.unit && <ThemedText type="small" themeColor="textSecondary"> {d.unit}</ThemedText>}
+                  </ThemedText>
+                  {d.note && <ThemedText type="small" themeColor="textSecondary">{d.note}</ThemedText>}
+                </ThemedView>
+              ))}
+            </View>
+          )}
+          {a.attribution && <ThemedText type="small" themeColor="textSecondary" style={styles.attribution}>{a.attribution}</ThemedText>}
+        </ScrollView>
+      </ThemedView>
     </Modal>
   );
 }
 
-function Section({ title, icon, style, children }: { title: string; icon: SFSymbol; style?: object; children: React.ReactNode }) {
+function Card({ title, icon, children }: { title: string; icon: SFSymbol; children: React.ReactNode }) {
+  const theme = useTheme();
   return (
-    <View style={[styles.section, style]}>
+    <ThemedView type="backgroundElement" style={styles.section}>
       <View style={styles.row}>
-        <SymbolView name={icon} size={13} tintColor="rgba(255,255,255,0.6)" />
-        <Text style={styles.caption}>{title.toUpperCase()}</Text>
+        <SymbolView name={icon} size={13} tintColor={theme.textSecondary} />
+        <ThemedText type="small" themeColor="textSecondary">{title}</ThemedText>
       </View>
       {children}
-    </View>
+    </ThemedView>
   );
 }
 
-/** A temperature line with a dot and value every few hours; drawn with views (a bar turned between each pair). */
-function Line({ points, labels }: { points: number[]; labels: string[] }) {
-  const [w, setW] = useState(0);
-  const H = 110;
-  const pad = 22;
-  const lo = Math.min(...points);
-  const hi = Math.max(...points);
-  const y = (v: number) => pad + (hi === lo ? 0.5 : (hi - v) / (hi - lo)) * (H - pad * 2);
-  const x = (i: number) => (i / (points.length - 1)) * (w - 16) + 8;
+/** Today's low to high as a bar, with a dot where it is now. */
+function Range({ low, high, now }: { low?: number; high?: number; now?: number }) {
+  if (low == null || high == null) return null;
+  const at = now == null || high === low ? null : Math.min(1, Math.max(0, (now - low) / (high - low)));
   return (
-    <View
-      onLayout={(e) => setW(e.nativeEvent.layout.width)}
-      style={{ height: H + 18 }}
-      accessible
-      accessibilityLabel={`Between ${Math.round(lo)} and ${Math.round(hi)} degrees over the next 12 hours`}>
-      {w > 0 &&
-        points.slice(1).map((v, i) => {
-          const x1 = x(i), y1 = y(points[i]), x2 = x(i + 1), y2 = y(v);
-          const len = Math.hypot(x2 - x1, y2 - y1);
-          return (
-            <View
-              key={i}
-              style={[styles.segment, { width: len, left: (x1 + x2) / 2 - len / 2, top: (y1 + y2) / 2 - 1.5, transform: [{ rotate: `${Math.atan2(y2 - y1, x2 - x1)}rad` }] }]}
-            />
-          );
-        })}
-      {w > 0 &&
-        points.map((v, i) =>
-          labels[i] ? (
-            <View key={i} style={[styles.mark, { left: x(i) - 24, top: y(v) - 22 }]}>
-              <Text style={styles.markTemp}>{Math.round(v)}°</Text>
-              <View style={styles.dot} />
-            </View>
-          ) : null,
-        )}
-      {w > 0 &&
-        labels.map((l, i) => (l ? <Text key={i} style={[styles.markTime, { left: x(i) - 24, top: H }]}>{l}</Text> : null))}
+    <View style={styles.rangeRow} accessible accessibilityLabel={`Today between ${round(low)} and ${round(high)} degrees`}>
+      <Text style={styles.hilo}>L {round(low)}°</Text>
+      <View style={styles.range}>
+        {at != null && <View style={[styles.dot, { left: `${at * 100}%` }]} />}
+      </View>
+      <Text style={styles.hilo}>H {round(high)}°</Text>
     </View>
   );
 }
 
-/** Each day's low to high as a bar placed within the week's range, like Apple's. */
-function Days({ days }: { days: Forecast[] }) {
-  const lows = days.map((d) => d.templow ?? d.temperature ?? 0);
-  const highs = days.map((d) => d.temperature ?? 0);
-  const lo = Math.min(...lows);
-  const hi = Math.max(...highs);
-  const at = (v: number) => (hi === lo ? 0 : (v - lo) / (hi - lo));
-  return (
-    <View style={styles.days}>
-      {days.map((d, i) => {
-        const [label, icon] = sky(d.condition);
-        return (
-          <View key={d.datetime} style={styles.day} accessible accessibilityLabel={`${day(d.datetime, i)}: ${label}, low ${round(lows[i])}, high ${round(highs[i])}`}>
-            <Text style={styles.dayName}>{day(d.datetime, i)}</Text>
-            <View style={styles.dayIcon}>
-              <SymbolView name={icon} size={20} type="multicolor" />
-              {!!d.precipitation_probability && <Text style={styles.rain}>{d.precipitation_probability}%</Text>}
-            </View>
-            <Text style={styles.dayLow}>{round(lows[i])}°</Text>
-            <View style={styles.range}>
-              <View style={[styles.rangeFill, { left: `${at(lows[i]) * 100}%`, right: `${(1 - at(highs[i])) * 100}%` }]} />
-            </View>
-            <Text style={styles.dayHigh}>{round(highs[i])}°</Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
+const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const uvWord = (uv: number) => (uv < 3 ? 'Low' : uv < 6 ? 'Moderate' : uv < 8 ? 'High' : uv < 11 ? 'Very high' : 'Extreme');
 
-const GLASS = 'rgba(255,255,255,0.12)';
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 20 },
+  section: { padding: Spacing.three, borderRadius: 20, gap: Spacing.two },
   cardTemp: { color: '#fff', fontSize: 28, fontWeight: '300' },
   cardSub: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '500' },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
-  panel: { borderRadius: 32, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.25)' },
-  close: { position: 'absolute', top: 16, right: 16, zIndex: 2, width: 32, height: 32, borderRadius: 16, backgroundColor: GLASS, alignItems: 'center', justifyContent: 'center' },
-  body: { padding: 24, gap: 14 },
-  columns: { flexDirection: 'row', gap: 14, alignItems: 'stretch' },
-  now: { minWidth: 240, paddingRight: 8 },
-  place: { color: '#fff', fontSize: 20, fontWeight: '600' },
-  updated: { color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 2 },
-  temp: { color: '#fff', fontSize: 88, fontWeight: '200', letterSpacing: -3, fontVariant: ['tabular-nums'] },
+  header: { flexDirection: 'row', alignItems: 'flex-start', padding: Spacing.three },
+  body: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.five, gap: Spacing.three },
+  hero: { borderRadius: 24, padding: 20, gap: 18 },
+  temp: { color: '#fff', fontSize: 80, fontWeight: '200', letterSpacing: -3, fontVariant: ['tabular-nums'] },
   label: { color: '#fff', fontSize: 20, fontWeight: '500' },
-  hilo: { color: 'rgba(255,255,255,0.85)', fontSize: 16, fontWeight: '500', marginTop: 4 },
-  section: { backgroundColor: GLASS, borderRadius: 18, padding: 14, gap: 10 },
-  caption: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', letterSpacing: 0.6 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignContent: 'flex-start' },
-  tile: { backgroundColor: GLASS, borderRadius: 16, padding: 12, gap: 4, minHeight: 86 },
-  value: { color: '#fff', fontSize: 24, fontWeight: '500', fontVariant: ['tabular-nums'] },
-  unit: { fontSize: 14, fontWeight: '500', color: 'rgba(255,255,255,0.75)' },
-  note: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
-  hours: { gap: 4 },
-  hour: { width: 56, alignItems: 'center', gap: 8, paddingVertical: 4 },
-  hourTime: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
-  hourTemp: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  rain: { color: '#7FD3FF', fontSize: 11, fontWeight: '700' },
-  segment: { position: 'absolute', height: 3, borderRadius: 1.5, backgroundColor: '#FFD36B' },
-  mark: { position: 'absolute', width: 48, alignItems: 'center', gap: 4 },
-  markTemp: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  markTime: { position: 'absolute', width: 48, textAlign: 'center', color: 'rgba(255,255,255,0.7)', fontSize: 12 },
-  dot: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: '#fff' },
-  days: { gap: 2 },
-  day: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
-  dayName: { width: 52, color: '#fff', fontSize: 16, fontWeight: '600' },
-  dayIcon: { width: 40, alignItems: 'center' },
-  dayLow: { width: 46, textAlign: 'right', color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '500' },
-  dayHigh: { width: 46, color: '#fff', fontSize: 16, fontWeight: '600' },
-  range: { flex: 1, height: 5, borderRadius: 3, backgroundColor: 'rgba(0,0,0,0.25)' },
-  rangeFill: { position: 'absolute', top: 0, bottom: 0, borderRadius: 3, backgroundColor: '#FFC24B' },
-  attribution: { color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center' },
+  rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  hilo: { color: '#fff', fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  range: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#FFC24B', justifyContent: 'center' },
+  dot: { position: 'absolute', width: 12, height: 12, marginLeft: -6, borderRadius: 6, backgroundColor: '#fff', borderWidth: 2, borderColor: 'rgba(0,0,0,0.25)' },
+  hours: { gap: 6 },
+  hour: { width: 58, alignItems: 'center', gap: 8, paddingVertical: 4 },
+  hourTemp: { fontSize: 18, fontWeight: '600' },
+  rain: { color: '#0A84FF', fontSize: 12, fontWeight: '700' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  tile: { borderRadius: 18, padding: 14, gap: 4, minHeight: 96 },
+  value: { fontSize: 26, fontWeight: '500', fontVariant: ['tabular-nums'], lineHeight: 32 },
+  attribution: { textAlign: 'center' },
 });
