@@ -1,7 +1,7 @@
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import type { Connection, HassEntity } from 'home-assistant-js-websocket';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -28,22 +28,6 @@ export const SKY: Record<string, [string, SFSymbol]> = {
   'windy-variant': ['Windy', 'wind'],
 };
 export const sky = (condition?: string): [string, SFSymbol] => SKY[condition ?? ''] ?? [condition ?? '', 'cloud.fill'];
-
-// Cards take the sky's colour, like Apple's backgrounds.
-const BACKDROP: Record<string, string> = {
-  sunny: '#2E6DB4',
-  partlycloudy: '#3A6597',
-  'clear-night': '#141C38',
-  cloudy: '#46566B',
-  fog: '#57616E',
-  rainy: '#33445A',
-  pouring: '#2A3749',
-  snowy: '#5A6D86',
-  'snowy-rainy': '#4C5D74',
-  hail: '#44536A',
-  lightning: '#2B2F45',
-  'lightning-rainy': '#2B2F45',
-};
 
 export type Forecast = {
   datetime: string;
@@ -84,6 +68,7 @@ export function WeatherCard() {
   const weather = useWeatherEntity();
   const daily = useForecast(conn, weather?.entity_id, 'daily');
   const [open, setOpen] = useState(false);
+  const theme = useTheme();
   if (!weather) return null;
   const [label, icon] = sky(weather.state);
   const today = daily[0];
@@ -94,18 +79,18 @@ export function WeatherCard() {
         accessibilityLabel={`Weather: ${round(weather.attributes.temperature)} degrees, ${label}`}
         accessibilityHint="Shows today's weather"
         onPress={() => setOpen(true)}
-        style={({ pressed }) => [styles.card, { backgroundColor: BACKDROP[weather.state] ?? BACKDROP.cloudy }, pressed && styles.pressed]}>
-        <SymbolView name={icon} size={34} type="multicolor" />
+        style={({ pressed }) => [styles.card, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
+        <SkyIcon name={icon} size={34} />
         <View style={styles.flex}>
-          <Text style={styles.cardTemp}>{round(weather.attributes.temperature)}°</Text>
-          <Text style={styles.cardSub}>{label}</Text>
+          <ThemedText style={styles.cardTemp}>{round(weather.attributes.temperature)}°</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{label}</ThemedText>
         </View>
         {today && (
-          <Text style={styles.cardSub}>
+          <ThemedText type="small" themeColor="textSecondary">
             H: {round(today.temperature)}°  L: {round(today.templow)}°
-          </Text>
+          </ThemedText>
         )}
-        <SymbolView name="chevron.right" size={14} tintColor="rgba(255,255,255,0.6)" />
+        <SymbolView name="chevron.right" size={14} tintColor={theme.textSecondary} />
       </Pressable>
       {open && <WeatherSheet onClose={() => setOpen(false)} />}
     </>
@@ -125,11 +110,10 @@ export function WeatherSheet({ onClose }: { onClose: () => void }) {
   const a = weather.attributes;
   const [label, icon] = sky(weather.state);
   const today = daily[0];
-  // The hours left today; late in the evening, at least the next six.
   const midnight = new Date().setHours(24, 0, 0, 0);
   const ahead = hourly.filter((h) => +new Date(h.datetime) > +new Date() - 3600_000);
   const left = ahead.filter((h) => +new Date(h.datetime) < midnight);
-  const hours = left.length >= 6 ? left : ahead.slice(0, 6);
+  const hours = ahead.slice(0, 24);
   const rain = Math.max(0, ...left.map((h) => h.precipitation_probability ?? 0));
   const sun = entities['sun.sun']?.attributes;
 
@@ -174,24 +158,24 @@ export function WeatherSheet({ onClose }: { onClose: () => void }) {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.body} onLayout={(e) => setW(e.nativeEvent.layout.width - 2 * Spacing.three)}>
-          <View style={[styles.hero, { backgroundColor: BACKDROP[weather.state] ?? BACKDROP.cloudy }]}>
+          <ThemedView type="backgroundElement" style={styles.hero}>
             <View style={styles.row}>
               <View style={styles.flex}>
-                <Text style={styles.temp}>{round(a.temperature)}°</Text>
-                <Text style={styles.label}>{label}</Text>
+                <ThemedText style={styles.temp}>{round(a.temperature)}°</ThemedText>
+                <ThemedText style={styles.label}>{label}</ThemedText>
               </View>
-              <SymbolView name={icon} size={72} type="multicolor" />
+              <SkyIcon name={icon} size={72} />
             </View>
             {today && <Range low={today.templow} high={today.temperature} now={a.temperature} />}
-          </View>
+          </ThemedView>
 
           {hours.length > 0 && (
-            <Card title={left.length >= 6 ? 'Rest of today' : 'Next hours'} icon="clock">
+            <Card title="Next 24 hours" icon="clock">
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hours}>
                 {hours.map((h, i) => (
                   <View key={h.datetime} style={styles.hour} accessible accessibilityLabel={`${i === 0 ? 'Now' : hour(h.datetime)}, ${round(h.temperature)} degrees, ${sky(h.condition)[0]}`}>
                     <ThemedText type="smallBold">{i === 0 ? 'Now' : hour(h.datetime)}</ThemedText>
-                    <SymbolView name={sky(h.condition)[1]} size={26} type="multicolor" />
+                    <SkyIcon name={sky(h.condition)[1]} size={26} />
                     <ThemedText style={styles.hourTemp}>{round(h.temperature)}°</ThemedText>
                     <Text style={styles.rain}>{h.precipitation_probability ? `${h.precipitation_probability}%` : ' '}</Text>
                   </View>
@@ -224,6 +208,14 @@ export function WeatherSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Apple's multicolour weather symbols draw clouds white, lost on a light card: there, grey clouds instead. */
+function SkyIcon({ name, size }: { name: SFSymbol; size: number }) {
+  const dark = useColorScheme() === 'dark';
+  if (dark || !name.startsWith('cloud')) return <SymbolView name={name} size={size} type="multicolor" />;
+  const accent = /rain|sleet|hail|snow/.test(name) ? '#0A84FF' : /sun|bolt/.test(name) ? '#FFC24B' : '#8E8E93';
+  return <SymbolView name={name} size={size} type="palette" colors={['#8E8E93', accent]} />;
+}
+
 function Card({ title, icon, children }: { title: string; icon: SFSymbol; children: React.ReactNode }) {
   const theme = useTheme();
   return (
@@ -243,11 +235,11 @@ function Range({ low, high, now }: { low?: number; high?: number; now?: number }
   const at = now == null || high === low ? null : Math.min(1, Math.max(0, (now - low) / (high - low)));
   return (
     <View style={styles.rangeRow} accessible accessibilityLabel={`Today between ${round(low)} and ${round(high)} degrees`}>
-      <Text style={styles.hilo}>L {round(low)}°</Text>
+      <ThemedText style={styles.hilo}>L {round(low)}°</ThemedText>
       <View style={styles.range}>
         {at != null && <View style={[styles.dot, { left: `${at * 100}%` }]} />}
       </View>
-      <Text style={styles.hilo}>H {round(high)}°</Text>
+      <ThemedText style={styles.hilo}>H {round(high)}°</ThemedText>
     </View>
   );
 }
@@ -261,17 +253,16 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 20 },
   section: { padding: Spacing.three, borderRadius: 20, gap: Spacing.two },
-  cardTemp: { color: '#fff', fontSize: 28, fontWeight: '300' },
-  cardSub: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '500' },
+  cardTemp: { fontSize: 28, fontWeight: '300', lineHeight: 34 },
   header: { flexDirection: 'row', alignItems: 'flex-start', padding: Spacing.three },
   body: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.five, gap: Spacing.three },
   hero: { borderRadius: 24, padding: 20, gap: 18 },
-  temp: { color: '#fff', fontSize: 80, fontWeight: '200', letterSpacing: -3, fontVariant: ['tabular-nums'] },
-  label: { color: '#fff', fontSize: 20, fontWeight: '500' },
+  temp: { fontSize: 80, lineHeight: 92, fontWeight: '200', letterSpacing: -3, fontVariant: ['tabular-nums'] },
+  label: { fontSize: 20, fontWeight: '500' },
   rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  hilo: { color: '#fff', fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  hilo: { fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
   range: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#FFC24B', justifyContent: 'center' },
-  dot: { position: 'absolute', width: 12, height: 12, marginLeft: -6, borderRadius: 6, backgroundColor: '#fff', borderWidth: 2, borderColor: 'rgba(0,0,0,0.25)' },
+  dot: { position: 'absolute', width: 12, height: 12, marginLeft: -6, borderRadius: 6, backgroundColor: '#fff', borderWidth: 2, borderColor: '#FF9F0A' },
   hours: { gap: 6 },
   hour: { width: 58, alignItems: 'center', gap: 8, paddingVertical: 4 },
   hourTemp: { fontSize: 18, fontWeight: '600' },
