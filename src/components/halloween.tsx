@@ -1,9 +1,11 @@
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import {
   ensureTally,
+  HALLOWEEN_EVENT,
   HALLOWEEN_DIR,
   HALLOWEEN_ID,
   HALLOWEEN_SOUNDS,
@@ -99,7 +101,7 @@ function HalloweenSetup() {
   const lights = byDomain(entities, 'light').filter((e) => e.attributes.supported_color_modes?.some((m: string) => COLOUR_MODES.includes(m)));
   const echoes = players(entities, devices).filter(isEcho);
   const h: Halloween = draft ??
-    saved ?? { cameras: [], lights: [], echo: echoes[0]?.entity_id, sounds: HALLOWEEN_SOUNDS.map(([id]) => id), say: true, notify: notify[0] };
+    saved ?? { cameras: [], lights: [], ipad: true, sounds: HALLOWEEN_SOUNDS.map(([id]) => id), say: true, notify: notify[0] };
   const edit = (next: Partial<Halloween>) => setDraft({ ...h, ...next });
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   const run = async (p: () => Promise<unknown>) => {
@@ -123,8 +125,12 @@ function HalloweenSetup() {
           <Chip key={e.entity_id} icon="lightbulb.fill" label={name(e)} selected={h.lights.includes(e.entity_id)} onPress={() => edit({ lights: toggle(h.lights, e.entity_id) })} />
         ))}
       </View>
-      <ThemedText type="small" themeColor="textSecondary">Play sounds on (pair it with the porch speaker in the Alexa app)</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        Play sounds on: the iPad plays them through its speaker or one paired with it (keep the app open on it); an Echo
+        through one paired in the Alexa app
+      </ThemedText>
       <View style={styles.row}>
+        <Chip icon="ipad" label="iPad by the door" selected={!!h.ipad} onPress={() => edit({ ipad: !h.ipad })} />
         {echoes.map((e) => (
           <Chip key={e.entity_id} icon="homepod.fill" label={name(e)} selected={h.echo === e.entity_id} onPress={() => edit({ echo: h.echo === e.entity_id ? undefined : e.entity_id })} />
         ))}
@@ -160,6 +166,53 @@ function HalloweenSetup() {
       {note && <ThemedText type="small" style={styles.error}>{note}</ThemedText>}
     </View>
   );
+}
+
+// The iPad's copies of the Alexa sounds and the spoken lines (made by scripts/make-halloween-sounds.py).
+const SOUND_FILES: Record<string, number> = {
+  horror_10: require('@/assets/sounds/horror_10.m4a'),
+  squeaky_12: require('@/assets/sounds/squeaky_12.m4a'),
+  amzn_sfx_wolf_howl_02: require('@/assets/sounds/amzn_sfx_wolf_howl_02.m4a'),
+};
+const LINE_FILES = [
+  require('@/assets/sounds/line0.m4a'),
+  require('@/assets/sounds/line1.m4a'),
+  require('@/assets/sounds/line2.m4a'),
+  require('@/assets/sounds/line3.m4a'),
+];
+
+/** Plays one file to the end (or gives up after 8 s). */
+function play(file: number) {
+  return new Promise<void>((done) => {
+    const player: AudioPlayer = createAudioPlayer(file);
+    const finish = () => (clearTimeout(timer), sub.remove(), player.remove(), done());
+    const timer = setTimeout(finish, 8000);
+    const sub = player.addListener('playbackStatusUpdate', (s) => s.didJustFinish && finish());
+    player.play();
+  });
+}
+
+/** On the iPad: plays the Halloween automation's sound and line when it fires (a visit, Try it, or the board's button). */
+export function HalloweenSounds() {
+  const { conn } = useHA();
+  useEffect(() => {
+    if (!conn) return;
+    let busy = false;
+    const sub = conn.subscribeEvents<{ data: { sound?: string; line?: string | number } }>(async ({ data }) => {
+      if (busy) return;
+      busy = true;
+      try {
+        await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
+        if (data.sound && SOUND_FILES[data.sound]) await play(SOUND_FILES[data.sound]);
+        const line = LINE_FILES[Number(data.line)];
+        if (line) await play(line);
+      } finally {
+        busy = false;
+      }
+    }, HALLOWEEN_EVENT);
+    return () => void sub.then((unsub) => unsub(), () => {});
+  }, [conn]);
+  return null;
 }
 
 /** The iPad wall on Halloween night: the count, the latest groups, and a big button for one the camera missed. */

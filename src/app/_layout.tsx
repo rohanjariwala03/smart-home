@@ -5,6 +5,7 @@ import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
+import { HalloweenSounds } from '@/components/halloween';
 import { HAProvider } from '@/ha';
 import { isPad } from '@/orientation';
 import { Push } from '@/push';
@@ -21,6 +22,7 @@ export default function TabLayout() {
       <HAProvider>
         <AppTabs />
         <Push />
+        {isPad && <HalloweenSounds />}
       </HAProvider>
     </ThemeProvider>
   );

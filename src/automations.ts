@@ -435,12 +435,15 @@ export const HALLOWEEN_SOUNDS = [
   ['squeaky_12', 'Creaky door'],
   ['amzn_sfx_wolf_howl_02', 'Wolf howl'],
 ] as const;
+export const HALLOWEEN_EVENT = 'smarthome_halloween';
+// Also recorded for the iPad by scripts/make-halloween-sounds.py: rerun it after changing these.
 const LINES = ['Happy Halloween!', 'Trick or treat!', 'Take one… if you dare.', 'Welcome, little monsters.'];
 
 export type Halloween = {
   cameras: string[]; // snapshot cameras; their motion sensors start a visit
   lights: string[];
   echo?: string; // Alexa Media Player speaker (the porch one)
+  ipad?: boolean; // the iPad by the door plays them, through whatever speaker is paired with it
   sounds: string[];
   say: boolean; // a spoken line after the sound
   notify?: string; // the morning-after recap
@@ -474,6 +477,11 @@ export async function setHalloween(creds: Creds, h: Halloween, entities: HassEnt
       ...(h.say ? [{ delay: { seconds: 3 } }, { action: 'notify.alexa_media', data: { message: `{{ ${JSON.stringify(LINES)} | random }}`, target: [h.echo], data: { type: 'tts' } } }] : []),
     ],
   };
+  // The iPad listens for this event (src/components/halloween.tsx) and plays its own copy of the sound and line.
+  const ipad = h.ipad && {
+    event: HALLOWEEN_EVENT,
+    event_data: { sound: h.sounds.length ? '{{ halloween.sounds | random }}' : '', line: h.say ? `{{ range(${LINES.length}) | random }}` : -1 },
+  };
   await rest(creds, 'POST', HALLOWEEN_ID, {
     alias: 'Halloween: trick-or-treaters',
     description: 'Created by the Smart Home app. Runs on Oct 31 from 4 to 11 PM; comes back next year.',
@@ -482,7 +490,7 @@ export async function setHalloween(creds: Creds, h: Halloween, entities: HassEnt
     conditions: [{ condition: 'template', value_template: TONIGHT }],
     actions: [
       { if: [{ condition: 'template', value_template: TONIGHT }], then: [{ action: 'input_text.set_value', target: { entity_id: HALLOWEEN_TALLY }, data: { value: BUMP } }] },
-      ...([lights, sound].some(Boolean) ? [{ parallel: [lights, sound].filter(Boolean) }] : []),
+      ...([lights, sound, ipad].some(Boolean) ? [{ parallel: [lights, sound, ipad].filter(Boolean) }] : []),
       { delay: { seconds: 45 } }, // ponytail: one visit per 45 s; two groups closer than that count once
     ],
     mode: 'single',
