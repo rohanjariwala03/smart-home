@@ -1,6 +1,6 @@
 import Slider from '@react-native-community/slider';
 import type { HassEntity } from 'home-assistant-js-websocket';
-import { ActionSheetIOS, Button, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Button, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AlertRows } from '@/components/announce-settings';
 import { useRemoveDevice } from '@/components/remove-devices';
@@ -57,6 +57,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
   const { entities, devices, call } = useHA();
   const domain = entity.entity_id.split('.')[0];
   const removeDevice = useRemoveDevice();
+  const { width } = useWindowDimensions();
   const device = devices[entity.entity_id];
   const others = device
     ? Object.values(entities)
@@ -64,10 +65,18 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
         .sort((a, b) => name(a).localeCompare(name(b)))
     : [];
 
+  // On a landscape iPad the thermostat gets the whole screen, in two columns, instead of a narrow sheet.
+  const wide = domain === 'climate' && width >= 1000;
+
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle={wide ? 'fullScreen' : 'pageSheet'}
+      supportedOrientations={['portrait', 'landscape']}
+      onRequestClose={onClose}>
       <ThemedView style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.sheet}>
+        <ScrollView contentContainerStyle={[styles.sheet, wide && styles.wideSheet]}>
           <View style={styles.header}>
             <ThemedText type="subtitle" numberOfLines={1} style={styles.flex}>
               {name(entity)}
@@ -86,7 +95,7 @@ export function DeviceSheet({ entity, onClose }: { entity: HassEntity; onClose: 
           ) : domain === 'media_player' ? (
             <MediaControls entity={entity} />
           ) : domain === 'climate' ? (
-            <Thermostat entity={entity} />
+            <Thermostat entity={entity} wide={wide} />
           ) : domain === 'alarm_control_panel' ? (
             <Card dim={unavailable(entity)}>
               <Toggle
@@ -420,6 +429,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { textAlign: 'center' },
   sheet: { padding: Spacing.three, gap: Spacing.three, paddingBottom: Spacing.six },
+  wideSheet: { paddingHorizontal: Spacing.five, paddingTop: Spacing.five },
   header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.two },
   section: { gap: Spacing.two },

@@ -154,7 +154,7 @@ export default function CamerasScreen() {
         />
       )}
       {seen && seenCamera && creds && (
-        <Modal visible animationType="fade" presentationStyle="pageSheet" onRequestClose={() => router.setParams({ seen: undefined })}>
+        <Modal supportedOrientations={['portrait', 'landscape']} visible animationType="fade" presentationStyle="pageSheet" onRequestClose={() => router.setParams({ seen: undefined })}>
           <ThemedView style={styles.seen}>
             <ThemedText type="subtitle">{what || 'What the camera saw'}</ThemedText>
             <Image style={styles.seenImage} resizeMode="contain" source={{ uri: creds.url + seen }} />

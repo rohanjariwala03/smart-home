@@ -31,7 +31,8 @@ const PRESET_ICON: Record<string, SFSymbol> = { home: 'house.fill', away: 'figur
 type Key = 'temperature' | 'target_temp_low' | 'target_temp_high';
 type Targets = Partial<Record<Key, number>>;
 
-export function Thermostat({ entity }: { entity: HassEntity }) {
+/** `wide` (iPad landscape): the reading and set points on the left, everything else on the right. */
+export function Thermostat({ entity, wide }: { entity: HassEntity; wide?: boolean }) {
   const { entities, devices, areas, call } = useHA();
   const a = entity.attributes;
   const look = climateLook(entity);
@@ -77,9 +78,9 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
     a.preset_mode && words(a.preset_mode),
   ].filter(Boolean);
 
-  return (
-    <View style={styles.gap}>
-      <View style={[styles.hero, off && styles.dim]}>
+  const controls = (
+    <>
+      <View style={[styles.hero, off && styles.dim, wide && styles.tall]}>
         {look.working && <View style={[styles.glow, { backgroundColor: accent }]} />}
         <View style={styles.reading}>
           <View style={styles.status}>
@@ -122,6 +123,23 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
         </View>
       )}
 
+      {rooms.length > 1 && (
+        <View style={styles.sensors}>
+          {rooms.map((r) => (
+            <View key={r.key} style={styles.sensor} accessible accessibilityLabel={`${r.name} ${degrees(r.temperature)}${r.occupied ? ', someone is there' : ''}`}>
+              <View style={styles.status}>
+                <Text style={styles.sensorName} numberOfLines={1}>{r.name}</Text>
+                {r.occupied !== undefined && <SymbolView name={r.occupied ? 'person.fill' : 'person'} size={14} tintColor={r.occupied ? '#30D158' : DIM} />}
+              </View>
+              <Text style={styles.sensorTemp}>{degrees(r.temperature)}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </>
+  );
+  const more = (
+    <>
       {modes.length > 0 && (
         <Segments
           title="Mode"
@@ -149,19 +167,18 @@ export function Thermostat({ entity }: { entity: HassEntity }) {
 
       <History entity={entity} />
 
-      {rooms.length > 1 && (
-        <View style={styles.sensors}>
-          {rooms.map((r) => (
-            <View key={r.key} style={styles.sensor} accessible accessibilityLabel={`${r.name} ${degrees(r.temperature)}${r.occupied ? ', someone is there' : ''}`}>
-              <View style={styles.status}>
-                <Text style={styles.sensorName} numberOfLines={1}>{r.name}</Text>
-                {r.occupied !== undefined && <SymbolView name={r.occupied ? 'person.fill' : 'person'} size={14} tintColor={r.occupied ? '#30D158' : DIM} />}
-              </View>
-              <Text style={styles.sensorTemp}>{degrees(r.temperature)}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+    </>
+  );
+
+  return wide ? (
+    <View style={styles.columns}>
+      <View style={[styles.gap, styles.flex]}>{controls}</View>
+      <View style={[styles.gap, styles.flex]}>{more}</View>
+    </View>
+  ) : (
+    <View style={styles.gap}>
+      {controls}
+      {more}
     </View>
   );
 }
@@ -444,6 +461,9 @@ const DIM = '#9FB0C3';
 
 const styles = StyleSheet.create({
   gap: { gap: 16 },
+  flex: { flex: 1 },
+  columns: { flexDirection: 'row', gap: 20, alignItems: 'flex-start' },
+  tall: { minHeight: 420 },
   hero: {
     flexDirection: 'row',
     alignItems: 'center',

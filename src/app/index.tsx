@@ -12,6 +12,7 @@ import { Card, Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThermostatCard } from '@/components/thermostat';
 import { greeting, useWallDashboard, Wall } from '@/components/wall';
+import { WeatherCard } from '@/components/weather';
 import { Spacing } from '@/constants/theme';
 import { useFavourites } from '@/favourites';
 import { byDomain, name, useHA } from '@/ha';
@@ -45,6 +46,7 @@ function HomeScreen() {
       subtitle={on ? `${on} ${on === 1 ? 'device' : 'devices'} on` : 'Everything is off'}
       action={<Chip icon="star" label="Edit" onPress={() => setEditing(true)} />}>
       {thermostat && <ThermostatCard entity={thermostat} onPress={() => setDetail(thermostat.entity_id)} />}
+      <WeatherCard />
       {halloweenSeason() && <HalloweenCard />}
 
       {favourites && pinned.length === 0 && (

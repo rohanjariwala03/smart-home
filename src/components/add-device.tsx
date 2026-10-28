@@ -39,7 +39,7 @@ export function AddDeviceSheet({ start, onClose }: { start: SheetStart; onClose:
   const [mode, setMode] = useState(start);
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal supportedOrientations={['portrait', 'landscape']} visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <ThemedView style={styles.sheet}>
         <View style={styles.close}>
           <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>

@@ -5,7 +5,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import * as SecureStore from 'expo-secure-store';
 import { useIsFocused } from 'expo-router';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
-import type { Connection, HassEntity } from 'home-assistant-js-websocket';
+import type { HassEntity } from 'home-assistant-js-websocket';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
@@ -27,6 +27,7 @@ import { active as isActive, allDevices, domainOf, ICONS, useDevice } from '@/co
 import { DeviceSheet } from '@/components/device-sheet';
 import { HalloweenBoard, useHalloweenBoard } from '@/components/halloween';
 import { ThermostatCard } from '@/components/thermostat';
+import { sky, useForecast, WeatherSheet } from '@/components/weather';
 import { LiveTile } from '@/components/live-grid';
 import { LiveView } from '@/components/live-view';
 import { Card } from '@/components/screen';
@@ -47,22 +48,6 @@ const LIVE_MS = 2 * 60_000; // Live on the camera page stops after this (Blink c
 const GLASS = isLiquidGlassAvailable();
 
 // Home Assistant's weather conditions.
-const SKY: Record<string, [string, SFSymbol]> = {
-  sunny: ['Sunny', 'sun.max.fill'],
-  'clear-night': ['Clear', 'moon.stars.fill'],
-  partlycloudy: ['Partly cloudy', 'cloud.sun.fill'],
-  cloudy: ['Cloudy', 'cloud.fill'],
-  fog: ['Fog', 'cloud.fog.fill'],
-  rainy: ['Rain', 'cloud.rain.fill'],
-  pouring: ['Heavy rain', 'cloud.heavyrain.fill'],
-  snowy: ['Snow', 'cloud.snow.fill'],
-  'snowy-rainy': ['Sleet', 'cloud.sleet.fill'],
-  hail: ['Hail', 'cloud.hail.fill'],
-  lightning: ['Thunder', 'cloud.bolt.fill'],
-  'lightning-rainy': ['Thunderstorm', 'cloud.bolt.rain.fill'],
-  windy: ['Windy', 'wind'],
-  'windy-variant': ['Windy', 'wind'],
-};
 
 // The wall dashboard is for the iPad: there it replaces Home unless turned off in Settings. The phone never shows it.
 const WALL_KEY = 'wall-dashboard';
@@ -354,25 +339,6 @@ function useNow() {
   return now;
 }
 
-type Today = { temperature?: number; templow?: number; precipitation_probability?: number };
-
-/** Today's high, low and chance of rain, from the weather entity's daily forecast. */
-function useForecast(conn: Connection | null, entityId?: string) {
-  const [today, setToday] = useState<Today>();
-  useEffect(() => {
-    if (!conn || !entityId) return;
-    const sub = conn
-      .subscribeMessage<{ forecast?: Today[] }>((m) => setToday(m.forecast?.[0]), {
-        type: 'weather/subscribe_forecast',
-        forecast_type: 'daily',
-        entity_id: entityId,
-      })
-      .catch(() => undefined); // no daily forecast: just no high and low
-    return () => void sub.then((unsub) => unsub?.());
-  }, [conn, entityId]);
-  return today;
-}
-
 function Glass({ width, height = width, on, center, label, hint, onPress, onLongPress, children }: {
   width: number;
   height?: number;
@@ -423,14 +389,20 @@ function Label({ title, sub, dark }: { title: string; sub?: string; dark?: boole
 function WeatherTile({ size }: { size: number }) {
   const { conn, entities } = useHA();
   const now = useNow();
+  const [open, setOpen] = useState(false);
   const weather = byDomain(entities, 'weather')[0];
-  const today = useForecast(conn, weather?.entity_id);
-  const [sky, icon] = SKY[weather?.state ?? ''] ?? [weather?.state ?? '', 'cloud.fill'];
+  const today = useForecast(conn, weather?.entity_id, 'daily')[0];
+  const hours = useForecast(conn, weather?.entity_id, 'hourly').slice(1, 6);
+  const [label, icon] = sky(weather?.state);
   const temp = weather?.attributes.temperature;
   const round = (n?: number) => (n === undefined ? '–' : Math.round(n));
   const date = now.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
   return (
-    <Glass width={size} label={temp === undefined ? `${time(now)}, ${date}` : `${round(temp)} degrees, ${sky}`}>
+    <Glass
+      width={size}
+      label={temp === undefined ? `${time(now)}, ${date}` : `${round(temp)} degrees, ${label}`}
+      hint={weather ? 'Shows today’s weather' : undefined}
+      onPress={weather ? () => setOpen(true) : undefined}>
       <View style={styles.between}>
         <Text style={styles.small}>{time(now)}</Text>
         <Text style={styles.small}>{date}</Text>
@@ -439,11 +411,11 @@ function WeatherTile({ size }: { size: number }) {
         <Text style={[styles.big, { fontSize: size * 0.22 }]}>{time(now)}</Text>
       ) : (
         <View>
-          <Text style={[styles.big, { fontSize: size * 0.3 }]}>{round(temp)}°</Text>
-          <View style={styles.sky}>
-            <SymbolView name={icon} size={20} tintColor="#fff" type="multicolor" />
-            <Text style={styles.title}>{sky}</Text>
+          <View style={styles.between}>
+            <Text style={[styles.big, { fontSize: size * 0.26 }]}>{round(temp)}°</Text>
+            <SymbolView name={icon} size={size * 0.16} type="multicolor" />
           </View>
+          <Text style={styles.title}>{label}</Text>
           {today && (
             <Text style={styles.sub}>
               H: {round(today.temperature)}°   L: {round(today.templow)}°
@@ -452,6 +424,18 @@ function WeatherTile({ size }: { size: number }) {
           )}
         </View>
       )}
+      {hours.length > 0 && (
+        <View style={styles.weatherHours}>
+          {hours.map((h) => (
+            <View key={h.datetime} style={styles.weatherHour}>
+              <Text style={styles.sub}>{new Date(h.datetime).toLocaleTimeString([], { hour: 'numeric' })}</Text>
+              <SymbolView name={sky(h.condition)[1]} size={20} type="multicolor" />
+              <Text style={styles.title}>{round(h.temperature)}°</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      {open && <WeatherSheet onClose={() => setOpen(false)} />}
     </Glass>
   );
 }
@@ -831,7 +815,8 @@ const styles = StyleSheet.create({
   inkSub: { color: 'rgba(28,28,30,0.6)' },
   small: { color: 'rgba(255,255,255,0.8)', fontSize: 15, fontWeight: '600' },
   big: { color: '#fff', fontWeight: '300', letterSpacing: -2, fontVariant: ['tabular-nums'] },
-  sky: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  weatherHours: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.25)', paddingTop: 10 },
+  weatherHour: { alignItems: 'center', gap: 6 },
   heading: { color: '#fff', fontSize: 28, fontWeight: '700' },
   banner: { color: '#FF9F0A', fontSize: 15, fontWeight: '600' },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.14)' },

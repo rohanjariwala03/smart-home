@@ -74,7 +74,7 @@ export function SceneEditor({ entityId, onClose }: { entityId?: string; onClose:
     ]);
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal supportedOrientations={['portrait', 'landscape']} visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <ThemedView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.sheet} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>

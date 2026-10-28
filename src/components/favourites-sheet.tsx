@@ -33,7 +33,7 @@ export function FavouritesSheet({ onClose }: { onClose: () => void }) {
   const remove = (indices: number[]) => save(favourites.filter((id) => !indices.some((i) => pinned[i] === id)));
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal supportedOrientations={['portrait', 'landscape']} visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <ThemedView style={styles.flex}>
         <View style={styles.header}>
           <ThemedText type="subtitle" style={styles.flex}>
