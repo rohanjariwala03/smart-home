@@ -72,7 +72,7 @@ export function useWallDashboard() {
   return [isPad && on, set] as const;
 }
 
-// Cameras whose motion opens their live view on the wall (a doorbell press always does). Unset: the doorbell camera.
+// Cameras whose motion or doorbell press opens their live view on the wall. Unset: the doorbell camera; none: off.
 const DOOR_KEY = 'wall-door-motion';
 let doorCameras: string[] | undefined;
 const doorListeners = new Set<(ids: string[] | undefined) => void>();
@@ -122,13 +122,21 @@ function DoorSetting() {
   const [ids, set] = useDoorCameras();
   const cameras = byDomain(entities, 'camera').filter((c) => c.attributes.snapshot_of && entities[motionOf(c)]);
   if (!cameras.length) return null;
+  const on = ids.length > 0;
   return (
     <>
-      <ThemedText type="smallBold">Show who’s at the door</ThemedText>
+      <View style={styles.between}>
+        <ThemedText type="smallBold">Show who’s at the door</ThemedText>
+        <Switch
+          value={on}
+          onValueChange={(next) => set(next ? [cameras.find((c) => /door/i.test(name(c)))?.entity_id ?? cameras[0].entity_id] : [])}
+          accessibilityLabel="Show who's at the door"
+        />
+      </View>
       <ThemedText type="small" themeColor="textSecondary">
-        Motion at these cameras (or a doorbell press) opens it live, full screen, for {DOOR_SECONDS} seconds; touch it to
-        keep watching. At most once every {DOOR_COOLDOWN_MS / 60_000} minutes a camera, as Blink stops live views after
-        about 10 an hour.
+        {on
+          ? `Motion or a doorbell press at these cameras opens it live, full screen, for ${DOOR_SECONDS} seconds; touch it to keep watching. At most once every ${DOOR_COOLDOWN_MS / 60_000} minutes a camera, as Blink stops live views after about 10 an hour.`
+          : 'Off: the wall never opens a camera by itself.'}
       </ThemedText>
       <View style={styles.chips}>
         {cameras.map((c) => (
@@ -187,8 +195,9 @@ export function Wall() {
   // `now` comes from the hooks' effects (the clock isn't read while drawing).
   const showDoor = (camera: HassEntity, motion: boolean, now: number) => {
     poke();
-    // A sheet is up (two can't show at once), or it's already showing; Halloween night keeps its board.
-    if (watch || detail || (motion && halloween)) return;
+    // Not a chosen camera (none chosen: off); a sheet is up (two can't show at once), or it's already showing;
+    // Halloween night keeps its board.
+    if (!doorCameras.includes(camera.entity_id) || watch || detail || (motion && halloween)) return;
     if (motion && now - (opened.current[camera.entity_id] ?? 0) < DOOR_COOLDOWN_MS) return;
     opened.current[camera.entity_id] = now;
     setAuto(true);
