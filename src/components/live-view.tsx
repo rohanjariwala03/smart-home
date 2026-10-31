@@ -2,7 +2,7 @@ import { useEventListener } from 'expo';
 import * as Haptics from 'expo-haptics';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -44,13 +44,22 @@ import MicStream from '../../modules/mic-stream';
 // Controls fade out a few seconds into playback; tap the video to bring them back. Pinch zooms around your fingers,
 // double-tap zooms in where you tap (and back out), drag to look around; swipe down to close. After a minute it asks
 // "Continue?" and pauses if nobody answers, so a forgotten live view doesn't drain the camera's battery.
-export function LiveView({ creds, slug, title, ptt = true, onClose }: {
+export function LiveView({ creds, slug, title, ptt = true, closeAfter, onClose }: {
   creds: Creds;
   slug: string;
   title: string;
   ptt?: boolean;
+  /** Opened by itself (someone at the door): closes after this many seconds unless the screen is touched. */
+  closeAfter?: number;
   onClose: () => void;
 }) {
+  const [kept, setKept] = useState(!closeAfter);
+  const closeNow = useEffectEvent(onClose);
+  useEffect(() => {
+    if (kept) return;
+    const t = setTimeout(closeNow, closeAfter! * 1000);
+    return () => clearTimeout(t);
+  }, [kept, closeAfter]);
   const base = cameraBase(creds, slug);
   const headers = useMemo(() => ({ Authorization: `Bearer ${creds.token}` }), [creds.token]);
   const insets = useSafeAreaInsets();
@@ -248,7 +257,7 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
       backdropColor="#000" // the default white flashes while it fades out
       supportedOrientations={['portrait', 'landscape']}
       onRequestClose={onClose}>
-      <GestureHandlerRootView style={styles.root}>
+      <GestureHandlerRootView style={styles.root} onTouchStart={() => setKept(true)}>
         <GestureDetector gesture={gesture}>
           <View
             style={StyleSheet.absoluteFill}
@@ -334,6 +343,12 @@ export function LiveView({ creds, slug, title, ptt = true, onClose }: {
             />
             <Round icon="xmark" label="Close live view" onPress={onClose} />
           </Animated.View>
+        )}
+
+        {!kept && (
+          <View pointerEvents="none" style={[styles.autoClose, { top: insets.top + 76 }]}>
+            <Text style={styles.badgeText}>Closes by itself · tap to keep watching</Text>
+          </View>
         )}
 
         {panel && stream && <ControlsPanel base={base} token={stream.token} session={stream.session} style={side} />}
@@ -712,6 +727,7 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.35 },
   talkText: { color: '#fff', fontSize: 15, fontWeight: '600', paddingHorizontal: Spacing.four, textAlign: 'center' },
   title: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  autoClose: { position: 'absolute', alignSelf: 'center', backgroundColor: '#0009', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF3B30' },
   badgeText: { color: '#fff', fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },

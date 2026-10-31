@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { removeAutomation, setSnapshots, SNAPSHOTS_ID, useAutomation } from '@/automations';
 import { degrees, roomReadings } from '@/climate';
 import { active as isActive, allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
+import { Chip } from '@/components/chip';
 import { DeviceSheet } from '@/components/device-sheet';
 import { HalloweenBoard, useHalloweenBoard } from '@/components/halloween';
 import { ThermostatCard } from '@/components/thermostat';
@@ -43,6 +44,8 @@ const NIGHT_FROM = 23;
 const NIGHT_TO = 7;
 const NIGHT_IDLE_MS = 30_000;
 const LIVE_MS = 2 * 60_000; // Live on the camera page stops after this (Blink cameras run on batteries)
+const DOOR_SECONDS = 30; // someone at the door: live full screen this long, unless touched
+const DOOR_COOLDOWN_MS = 3 * 60_000;
 const GLASS = isLiquidGlassAvailable();
 
 // Home Assistant's weather conditions.
@@ -69,6 +72,31 @@ export function useWallDashboard() {
   return [isPad && on, set] as const;
 }
 
+// Cameras whose motion opens their live view on the wall (a doorbell press always does). Unset: the doorbell camera.
+const DOOR_KEY = 'wall-door-motion';
+let doorCameras: string[] | undefined;
+const doorListeners = new Set<(ids: string[] | undefined) => void>();
+const doorLoaded = isPad ? SecureStore.getItemAsync(DOOR_KEY).then((v) => (doorCameras = v ? JSON.parse(v) : undefined)) : Promise.resolve();
+
+function useDoorCameras() {
+  const { entities } = useHA();
+  const [ids, setIds] = useState(doorCameras);
+  useEffect(() => {
+    doorListeners.add(setIds);
+    doorLoaded.then(() => setIds(doorCameras));
+    return () => void doorListeners.delete(setIds);
+  }, []);
+  const set = (next: string[]) => {
+    doorCameras = next;
+    doorListeners.forEach((l) => l(next));
+    SecureStore.setItemAsync(DOOR_KEY, JSON.stringify(next));
+  };
+  const fallback = Object.values(entities)
+    .filter((c) => c.attributes.snapshot_of && liveCamera(entities, c)?.attributes.camera_type === 'doorbell')
+    .map((c) => c.entity_id);
+  return [ids ?? fallback, set] as const;
+}
+
 /** The Settings switch for it, shown only on an iPad. */
 export function WallSetting() {
   const [on, set] = useWallDashboard();
@@ -83,7 +111,37 @@ export function WallSetting() {
         For an iPad on the wall: Home shows glass tiles, a clock, the weather and cameras, keeps the screen on and fades
         to a clock when nobody touches it. Off, Home is the same list as on your iPhone.
       </ThemedText>
+      {on && <DoorSetting />}
     </Card>
+  );
+}
+
+/** Which cameras' motion brings their live view up on the wall. */
+function DoorSetting() {
+  const { entities } = useHA();
+  const [ids, set] = useDoorCameras();
+  const cameras = byDomain(entities, 'camera').filter((c) => c.attributes.snapshot_of && entities[motionOf(c)]);
+  if (!cameras.length) return null;
+  return (
+    <>
+      <ThemedText type="smallBold">Show who’s at the door</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        Motion at these cameras (or a doorbell press) opens it live, full screen, for {DOOR_SECONDS} seconds; touch it to
+        keep watching. At most once every {DOOR_COOLDOWN_MS / 60_000} minutes a camera, as Blink stops live views after
+        about 10 an hour.
+      </ThemedText>
+      <View style={styles.chips}>
+        {cameras.map((c) => (
+          <Chip
+            key={c.entity_id}
+            icon="video.fill"
+            label={name(c)}
+            selected={ids.includes(c.entity_id)}
+            onPress={() => set(ids.includes(c.entity_id) ? ids.filter((x) => x !== c.entity_id) : [...ids, c.entity_id])}
+          />
+        ))}
+      </View>
+    </>
   );
 }
 
@@ -123,10 +181,21 @@ export function Wall() {
   const pager = useRef<ScrollView>(null);
   const [live, play] = useInlineLive(page === 0 && focused && !idle && !watch && !detail);
 
-  useDoorbell((camera) => {
+  const [doorCameras] = useDoorCameras();
+  const opened = useRef<Record<string, number>>({});
+  const [auto, setAuto] = useState(false);
+  // `now` comes from the hooks' effects (the clock isn't read while drawing).
+  const showDoor = (camera: HassEntity, motion: boolean, now: number) => {
     poke();
+    // A sheet is up (two can't show at once), or it's already showing; Halloween night keeps its board.
+    if (watch || detail || (motion && halloween)) return;
+    if (motion && now - (opened.current[camera.entity_id] ?? 0) < DOOR_COOLDOWN_MS) return;
+    opened.current[camera.entity_id] = now;
+    setAuto(true);
     setWatch(camera);
-  });
+  };
+  useDoorbell((camera, now) => showDoor(camera, false, now));
+  useMotion(doorCameras, (camera, now) => showDoor(camera, true, now));
 
   const allCameras = byDomain(entities, 'camera').filter((e) => e.attributes.snapshot_of);
   const pinned = (favourites ?? []).flatMap((id) => (entities[id] ? [entities[id]] : []));
@@ -251,7 +320,8 @@ export function Wall() {
           slug={watch.attributes.snapshot_of}
           title={name(watch)}
           ptt={liveCamera(entities, watch)?.attributes.ptt_supported !== false}
-          onClose={close(() => setWatch(undefined))}
+          closeAfter={auto ? DOOR_SECONDS : undefined}
+          onClose={close(() => (setWatch(undefined), setAuto(false)))}
         />
       )}
       {detail && entities[detail] && <DeviceSheet entity={entities[detail]} onClose={close(() => setDetail(undefined))} />}
@@ -310,7 +380,24 @@ function useIdle(ms: number) {
  * Calls `ring` with the doorbell's camera when Blink Instant Events reports a press. Its event entity's state is the
  * time of the camera's last event; `event_type` says which.
  */
-function useDoorbell(ring: (camera: HassEntity) => void) {
+const motionOf = (camera: HassEntity) => `binary_sensor.${camera.entity_id.split('.')[1]}_motion`;
+
+/** Calls `seen` when one of these cameras' motion sensor turns on. */
+function useMotion(cameraIds: string[], seen: (camera: HassEntity, now: number) => void) {
+  const { entities } = useHA();
+  const was = useRef<Record<string, string>>({});
+  useEffect(() => {
+    for (const id of cameraIds) {
+      const camera = entities[id];
+      const state = camera && entities[motionOf(camera)]?.state;
+      if (!state) continue;
+      if (was.current[id] !== undefined && was.current[id] !== 'on' && state === 'on') seen(camera, Date.now());
+      was.current[id] = state;
+    }
+  });
+}
+
+function useDoorbell(ring: (camera: HassEntity, now: number) => void) {
   const { entities, devices } = useHA();
   const seen = useRef<Record<string, string>>({});
   useEffect(() => {
@@ -323,7 +410,7 @@ function useDoorbell(ring: (camera: HassEntity) => void) {
       const camera =
         cameras.find((c) => devices[c.entity_id] && devices[c.entity_id].id === devices[e.entity_id]?.id) ??
         cameras.find((c) => liveCamera(entities, c)?.attributes.camera_type === 'doorbell');
-      if (camera) ring(camera);
+      if (camera) ring(camera, Date.now());
     }
   });
 }
@@ -779,6 +866,7 @@ function RoomsTile({ rooms, size }: { rooms: [string, { temperature?: number; oc
 }
 
 const styles = StyleSheet.create({
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   wall: { flex: 1, backgroundColor: '#0b0b0f' },
   flex: { flex: 1 },
   dim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
