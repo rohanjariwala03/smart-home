@@ -34,10 +34,10 @@ import { auth } from '@/vision';
 const ORANGE = '#FF7A1A';
 const COLOUR_MODES = ['hs', 'rgb', 'rgbw', 'rgbww', 'xy'];
 
-/** Oct 20 to Nov 1: when the Halloween card shows on Home. */
-export const halloweenSeason = (d = new Date()) => (d.getMonth() === 9 && d.getDate() >= 20) || (d.getMonth() === 10 && d.getDate() === 1);
-/** Oct 31 from 3 PM until noon the next day: when the iPad wall shows the board and stays awake. */
-const boardTime = (d = new Date()) => (d.getMonth() === 9 && d.getDate() === 31 && d.getHours() >= 15) || (d.getMonth() === 10 && d.getDate() === 1 && d.getHours() < 12);
+/** Oct 20 to 31: when the Halloween card shows on Home (gone from Nov 1 until next year). */
+export const halloweenSeason = (d = new Date()) => d.getMonth() === 9 && d.getDate() >= 20;
+/** Oct 31 from 3 PM to midnight: when the iPad wall shows the board and stays awake. */
+const boardTime = (d = new Date()) => d.getMonth() === 9 && d.getDate() === 31 && d.getHours() >= 15;
 
 function useHalloween() {
   const { conn, creds, entities, call } = useHA();
