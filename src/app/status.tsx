@@ -49,7 +49,7 @@ export default function StatusScreen() {
   const problems = Number(blinkSignedOut(entities)) + offlineNames.length + connections.filter((e) => e.state !== 'on').length + low.length + (status === 'ready' ? 0 : 1);
 
   return (
-    <Screen title="Status" subtitle={problems ? `${problems} need${problems === 1 ? 's' : ''} attention` : 'Everything looks good'}>
+    <Screen title="Status" readable subtitle={problems ? `${problems} need${problems === 1 ? 's' : ''} attention` : 'Everything looks good'}>
       <Card>
         <ThemedText type="smallBold">Home Assistant</ThemedText>
         <Row icon="house.fill" label="Connection" value={status === 'ready' ? 'Connected' : status} tone={status === 'ready' ? 'ok' : 'bad'} />

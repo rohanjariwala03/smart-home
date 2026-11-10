@@ -1,5 +1,5 @@
 import { SymbolView, type SFSymbol } from 'expo-symbols';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,10 +17,13 @@ const BANNER: Partial<Record<Status, string>> = {
   error: 'Connection failed. Check Settings.',
 };
 
-export function Screen({ title, subtitle, action, children }: {
+/** `readable` keeps lists of text (Status, Settings) to a comfortable width on an iPad, centred. */
+export function Screen({ title, subtitle, action, readable, scrollRef, children }: {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  readable?: boolean;
+  scrollRef?: Ref<ScrollView>;
   children: ReactNode;
 }) {
   const { status, error } = useHA();
@@ -30,10 +33,12 @@ export function Screen({ title, subtitle, action, children }: {
   return (
     <ThemedView style={styles.flex}>
       <SafeAreaView style={styles.flex} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView ref={scrollRef} contentContainerStyle={[styles.content, readable && styles.readable]}>
           <View style={styles.header}>
             <View style={styles.flex}>
-              <ThemedText style={styles.title}>{title}</ThemedText>
+              <ThemedText style={styles.title} maxFontSizeMultiplier={1.3}>
+                {title}
+              </ThemedText>
               {subtitle && <ThemedText type="small" themeColor="textSecondary">{subtitle}</ThemedText>}
             </View>
             {action}
@@ -146,6 +151,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.6 },
   header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   content: { padding: Spacing.three, gap: Spacing.four, paddingBottom: BottomTabInset + Spacing.three },
+  readable: { width: '100%', maxWidth: 720, alignSelf: 'center' },
   banner: { padding: Spacing.three, borderRadius: 12 },
   card: { padding: Spacing.three, borderRadius: 14, gap: Spacing.two },
   dim: { opacity: 0.45 },

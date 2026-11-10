@@ -28,7 +28,7 @@ export default function SettingsScreen() {
   const ready = status === 'ready';
 
   return (
-    <Screen title="Settings">
+    <Screen title="Settings" readable>
       <Card>
         <ThemedText type="smallBold">Devices</ThemedText>
         <DiscoveredList onSetUp={(flowId) => setSheet({ flowId })} />

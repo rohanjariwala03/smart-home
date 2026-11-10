@@ -8,11 +8,15 @@ export type ThemedTextProps = TextProps & {
   themeColor?: ThemeColor;
 };
 
+/** Text grows with the iPhone's text size up to twice as big; past that, layouts can't fit it. Big headings grow less. */
+export const MAX_SCALE = 2;
+
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
 
   return (
     <Text
+      maxFontSizeMultiplier={type === 'title' || type === 'subtitle' ? 1.3 : MAX_SCALE}
       style={[
         { color: theme[themeColor ?? 'text'] },
         type === 'default' && styles.default,

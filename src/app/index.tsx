@@ -4,7 +4,7 @@ import { Alert, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-
 
 import { CameraStrip } from '@/components/camera-strip';
 import { Chip } from '@/components/chip';
-import { active, allDevices, domainOf, GAP, ICONS, Tile, tileWidth } from '@/components/device-tile';
+import { active, allDevices, domainOf, GAP, ICONS, Placeholders, Tile, tileWidth } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { FavouritesSheet } from '@/components/favourites-sheet';
 import { HalloweenCard, halloweenSeason } from '@/components/halloween';
@@ -27,11 +27,11 @@ export default function Home() {
 // The thermostat, then only what you've starred: cameras, scenes and devices. Everything else is on the Devices and
 // Cameras tabs.
 function HomeScreen() {
-  const { conn, entities, devices: registry } = useHA();
+  const { conn, entities, devices: registry, status } = useHA();
   const { favourites } = useFavourites();
   const [detail, setDetail] = useState<string>();
   const [editing, setEditing] = useState(false);
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
 
   const on = allDevices(entities, registry).filter(active).length;
   const pinned = (favourites ?? []).flatMap((id) => (entities[id] ? [entities[id]] : []));
@@ -39,17 +39,19 @@ function HomeScreen() {
   const scenes = pinned.filter((e) => ['scene', 'script'].includes(domainOf(e)));
   const thermostat = byDomain(entities, 'climate')[0];
   const devices = pinned.filter((e) => !e.attributes.snapshot_of && !scenes.includes(e) && e !== thermostat);
+  // Favourites are known before their states arrive: grey tiles hold their places meanwhile.
+  const loading = !Object.keys(entities).length && ['loading', 'connecting', 'disconnected'].includes(status);
 
   return (
     <Screen
       title={greeting()}
-      subtitle={on ? `${on} ${on === 1 ? 'device' : 'devices'} on` : 'Everything is off'}
+      subtitle={loading ? undefined : on ? `${on} ${on === 1 ? 'device' : 'devices'} on` : 'Everything is off'}
       action={<Chip icon="star" label="Edit" onPress={() => setEditing(true)} />}>
       {thermostat && <ThermostatCard entity={thermostat} onPress={() => setDetail(thermostat.entity_id)} />}
       <WeatherCard />
       {halloweenSeason() && <HalloweenCard />}
 
-      {favourites && pinned.length === 0 && (
+      {favourites && pinned.length === 0 && !loading && (
         <Card>
           <ThemedText type="smallBold">Pin what you use most</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
@@ -77,10 +79,16 @@ function HomeScreen() {
         </ScrollView>
       )}
 
+      {loading && !!favourites?.length && (
+        <View style={styles.grid}>
+          <Placeholders count={Math.min(favourites.length, 8)} width={tileWidth(width, fontScale)} />
+        </View>
+      )}
+
       {devices.length > 0 && (
         <View style={styles.grid}>
           {devices.map((e) => (
-            <Tile key={e.entity_id} entity={e} width={tileWidth(width)} onSettings={() => setDetail(e.entity_id)} />
+            <Tile key={e.entity_id} entity={e} width={tileWidth(width, fontScale)} onSettings={() => setDetail(e.entity_id)} />
           ))}
         </View>
       )}

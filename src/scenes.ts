@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { callService, type Connection } from 'home-assistant-js-websocket';
 
 import type { Creds } from '@/ha';
@@ -54,7 +55,18 @@ export const readScene = (conn: Connection, entityId: string) =>
   conn.sendMessagePromise<{ config: unknown }>({ type: 'script/config', entity_id: entityId }).then((r) => fromScript(r.config));
 
 /** Run any scene or script. For the app's own scenes, then apply their Govee part (after HA has switched the light on). */
+/** Runs a scene, with a success tap when it's done (an error buzz, then the error, if it fails). */
 export async function runScene(conn: Connection, entityId: string) {
+  try {
+    await applyScene(conn, entityId);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch (e) {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    throw e;
+  }
+}
+
+async function applyScene(conn: Connection, entityId: string) {
   const domain = entityId.split('.')[0];
   await callService(conn, domain, 'turn_on', { entity_id: entityId });
   if (!isAppScene(entityId)) return;

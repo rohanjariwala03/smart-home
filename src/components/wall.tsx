@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { removeAutomation, setSnapshots, SNAPSHOTS_ID, useAutomation } from '@/automations';
 import { degrees, roomReadings } from '@/climate';
-import { active as isActive, allDevices, domainOf, ICONS, useDevice } from '@/components/device-tile';
+import { active as isActive, allDevices, allOff, domainOf, ICONS, useDevice } from '@/components/device-tile';
 import { Chip } from '@/components/chip';
 import { DeviceSheet } from '@/components/device-sheet';
 import { HalloweenBoard, useHalloweenBoard } from '@/components/halloween';
@@ -286,7 +286,7 @@ export function Wall() {
                 )}
               </View>
               {on.length > 0 && (
-                <Pill icon="power" label="All off" on={false} onPress={() => call('homeassistant', 'turn_off', { entity_id: on.map((e) => e.entity_id) })} />
+                <Pill icon="power" label="All off" on={false} onPress={() => allOff(call, on)} />
               )}
             </View>
             {halloween && <HalloweenBoard width={span(cols)} height={cell} />}
@@ -661,6 +661,12 @@ function DeviceTile({ entity, size, onLongPress }: { entity: HassEntity; size: n
         <DeviceIcon entity={entity} isOn={isOn} icon={icon} rgb={[r, g, b]} size={size * 0.2} dim={off} />
       )}
       <Label title={name(entity)} sub={state + timer} dark={isOn} />
+      {toggle && (
+        // A tap switches the device, so its settings get a visible way in too (holding still works).
+        <Pressable accessibilityRole="button" accessibilityLabel={`${name(entity)} settings`} hitSlop={10} onPress={onLongPress} style={styles.more}>
+          <SymbolView name="ellipsis.circle" size={Math.max(22, size * 0.1)} tintColor={isOn ? 'rgba(28,28,30,0.5)' : 'rgba(255,255,255,0.5)'} />
+        </Pressable>
+      )}
     </Glass>
   );
 }
@@ -889,6 +895,7 @@ const styles = StyleSheet.create({
   sub: { color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 2 },
   centered: { textAlign: 'center' },
   ink: { color: '#1c1c1e' },
+  more: { position: 'absolute', top: 12, right: 12 },
   inkSub: { color: 'rgba(28,28,30,0.6)' },
   small: { color: 'rgba(255,255,255,0.8)', fontSize: 15, fontWeight: '600' },
   big: { color: '#fff', fontWeight: '300', letterSpacing: -2, fontVariant: ['tabular-nums'] },

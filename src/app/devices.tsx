@@ -1,13 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import type { HassEntity } from 'home-assistant-js-websocket';
 import { SymbolView } from 'expo-symbols';
-import { useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { degrees, roomReadings } from '@/climate';
 import { AddDeviceSheet } from '@/components/add-device';
 import { Chip } from '@/components/chip';
-import { active, allDevices, GAP, Tile, tileWidth } from '@/components/device-tile';
+import { active, allDevices, allOff, GAP, Placeholders, Tile, tileWidth } from '@/components/device-tile';
 import { DeviceSheet } from '@/components/device-sheet';
 import { SceneList } from '@/components/scene-list';
 import { Card, Screen } from '@/components/screen';
@@ -27,7 +27,9 @@ export default function DevicesScreen() {
   const detail = picked ?? linked;
   const [setUp, setSetUp] = useState<string>();
   const discovered = useDiscovered();
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
+  const scroll = useRef<ScrollView>(null);
+  const tops = useRef<Record<string, number>>({});
 
   const devices = allDevices(entities, registry);
   const on = devices.filter(active);
@@ -38,9 +40,11 @@ export default function DevicesScreen() {
   const readings = roomReadings(entities, registry, areas);
   for (const [room, r] of Object.entries(readings)) if (r.temperature !== undefined) rooms[room] ??= [];
   const roomNames = Object.keys(rooms).sort((a, b) => (a === OTHER ? 1 : b === OTHER ? -1 : a.localeCompare(b)));
+  const loading = !devices.length && ['loading', 'connecting', 'disconnected'].includes(status);
 
   return (
     <Screen
+      scrollRef={scroll}
       title="Devices"
       subtitle={devices.length ? `${on.length} of ${devices.length} on` : undefined}
       action={
@@ -48,7 +52,7 @@ export default function DevicesScreen() {
           <Chip
             icon="power"
             label="All off"
-            onPress={() => call('homeassistant', 'turn_off', { entity_id: on.map((e) => e.entity_id) })}
+            onPress={() => allOff(call, on)}
           />
         )
       }>
@@ -65,8 +69,23 @@ export default function DevicesScreen() {
         </Card>
       )}
 
+      {roomNames.length > 2 && (
+        // Jump to a room: the list gets long.
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rooms}>
+          {roomNames.map((room) => (
+            <Chip key={room} label={room} onPress={() => scroll.current?.scrollTo({ y: (tops.current[room] ?? 0) - Spacing.two })} />
+          ))}
+        </ScrollView>
+      )}
+
+      {loading && (
+        <View style={styles.grid}>
+          <Placeholders count={6} width={tileWidth(width, fontScale)} />
+        </View>
+      )}
+
       {roomNames.map((room) => (
-        <View key={room} style={styles.section}>
+        <View key={room} style={styles.section} onLayout={(e) => (tops.current[room] = e.nativeEvent.layout.y)}>
           <View style={styles.roomHeader}>
             <ThemedText type="smallBold" themeColor="textSecondary" style={styles.flex}>
               {roomNames.length === 1 && room === OTHER ? 'Devices' : room}
@@ -82,7 +101,7 @@ export default function DevicesScreen() {
           </View>
           <View style={styles.grid}>
             {rooms[room].map((e) => (
-              <Tile key={e.entity_id} entity={e} width={tileWidth(width)} onSettings={() => setDetail(e.entity_id)} />
+              <Tile key={e.entity_id} entity={e} width={tileWidth(width, fontScale)} onSettings={() => setDetail(e.entity_id)} />
             ))}
           </View>
         </View>
@@ -95,7 +114,7 @@ export default function DevicesScreen() {
       )}
       {devices.length > 0 && (
         <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
-          Tap an icon to switch it · tap a name for timers, schedules and ☆ favourite
+          Tap an icon to switch it · tap a name for timers, schedules and ☆ favourite · hold for quick actions
         </ThemedText>
       )}
 
@@ -113,5 +132,6 @@ const styles = StyleSheet.create({
   section: { gap: Spacing.two },
   roomHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
+  rooms: { gap: Spacing.two },
   hint: { textAlign: 'center' },
 });
