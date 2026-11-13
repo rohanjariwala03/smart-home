@@ -1,50 +1,108 @@
 # Smart Home
 
-Personal iPhone app (Expo SDK 57 / React Native) for the house: Govee TV lights, Kasa switches, TVs, Echo speakers, and Blink Outdoor 4 cameras plus the Video Doorbell. Home Assistant does all device integration; Alexa keeps working independently. There's also a home-screen widget, a Control Center toggle, Siri intents and an Apple Watch app.
+A native iPhone and iPad app for [Home Assistant](https://www.home-assistant.io). It talks straight to your Home Assistant over your home network: no account, no cloud service, no analytics.
 
-```
-iPhone app ──WebSocket──▶ Home Assistant ──▶ TP-Link (Kasa), Matter (Govee), Alexa Media Player, ...
-          └─HTTP (HLS)──▶ Blink Instant Events integration ──▶ Blink cloud
-```
+<p>
+  <img src="docs/screenshots/iphone-home.png" alt="Home tab on iPhone" height="420">
+  <img src="docs/screenshots/ipad-devices.png" alt="Devices tab on iPad" height="420">
+</p>
 
-## The app
+> Personal project, shared as is. It's built and tested around one house (Kasa, Govee over Matter, Ecobee, Echo, Blink, Google/Android TVs), so other setups may hit rough edges. Issues and pull requests are welcome.
 
-Five tabs:
+## Features
 
-- Home: only your favourites (starred cameras, scenes and devices), in the order you set under Edit.
-- Devices: every device grouped by Home Assistant area, then scenes, plus All off. Tap a tile's icon to switch it; tap the rest of the tile for its settings sheet.
-- Cameras: Blink snapshots, live view, clips, arming and camera automations.
-- Status: HA, Blink and per-camera health, offline devices, batteries, and energy use.
-- Settings: add or remove devices, Echo announcements, the HA address and token, and an optional Govee cloud key.
+- **Home:** the thermostat, weather and only what you star: devices, scenes and cameras.
+- **Devices:** everything grouped by your Home Assistant areas, with a room-jump bar, room temperature and occupancy, and All off. Tap to switch, hold for quick actions (turn off in 30 minutes or an hour, favourite, settings), tap the name for the full settings sheet.
+- **Timers, schedules and auto-off** for lights and switches. They're saved as ordinary Home Assistant automations, so they run with your phone off.
+- **Scenes:** run any Home Assistant scene or script, or make your own in the app.
+- **Cameras:** snapshots, live view with push-to-talk, motion clips, arming, and "who's at the door" alerts. Needs [Local Camera Vision](https://github.com/rohanjariwala03/ha-local-camera-vision) (Blink, RTSP and ONVIF cameras).
+- **Status:** Home Assistant health and updates, offline devices, batteries, energy use.
+- **Echo announcements** for the doorbell, motion and problems, with quiet hours. Needs [Alexa Media Player](https://github.com/alandtse/alexa_media_player).
+- **Add and remove devices** without the Home Assistant app, including Matter pairing codes.
+- **iPad wall dashboard** for a tablet by the door.
+- **Home-screen and Lock Screen widgets, a Control Center toggle, Siri and Shortcuts, and an Apple Watch app.**
+- Dark mode, large text and VoiceOver.
 
-Devices are listed by domain, not by hard-coded entity IDs. Anything added in HA shows up automatically.
+Nothing is hard-coded: devices come from Home Assistant by type, so whatever you add there shows up in the app.
 
-## Run
+## What you need
 
-```bash
-npm install
-npx expo run:ios --device --configuration Release   # standalone build on a USB/Wi-Fi-paired iPhone
-```
+- Home Assistant, reachable from your iPhone on your home Wi-Fi.
+- A Mac with Xcode and Node.js.
+- An Apple developer account. A free account can install the app on your own iPhone, but it has to be reinstalled every 7 days and can't receive push alerts. The paid Apple Developer Program ($99/year) removes both limits.
+- An iPhone or iPad on iOS 18 or later.
 
-Expo Go can't run this app because of the widget and watch targets, the local `mic-stream` native module and secure store. The `ios/` folder is generated; native changes go in `app.json` and `plugins/`.
+The app isn't on the App Store, so you build it yourself.
 
-In the app's Settings tab, open Address & token and enter the Home Assistant URL (for example `http://192.168.x.x`) and a long-lived token. The phone must be on the home Wi-Fi (or on Tailscale, see Security).
+## Install
 
-There are no tests. Before you finish a change, run `npx tsc --noEmit` and `npx expo lint`.
+1. Get the code and its packages:
 
-## Home Assistant requirements
+   ```bash
+   git clone https://github.com/rohanjariwala03/smart-home.git
+   cd smart-home
+   npm install
+   ```
 
-| Device | Integration |
+2. Create a file named `.env.local` in the project folder with your Apple team and a bundle id of your own:
+
+   ```bash
+   APPLE_TEAM_ID=ABCDE12345            # developer.apple.com › Account › Membership details
+   BUNDLE_ID=com.yourname.smarthome    # any unique reverse-domain name
+   ```
+
+   The file is git-ignored, so your team id stays on your Mac.
+
+3. Connect your iPhone with a cable (or pair it with Xcode over Wi-Fi), unlock it, and run:
+
+   ```bash
+   npx expo run:ios --device --configuration Release
+   ```
+
+   The first time, Xcode may ask you to sign in to your Apple account and trust the developer certificate on the phone (Settings › General › VPN & Device Management).
+
+4. In Home Assistant, create a token: your profile › Security › Long-lived access tokens.
+
+5. Open the app, go to Settings › Address & token, and enter your Home Assistant address (for example `http://192.168.1.50:8123`) and the token.
+
+A token from an admin user lets the app add devices, schedules and automations. If you only want control, a non-admin user is safer.
+
+Expo Go can't run this app because of its widget, watch and native audio parts.
+
+## Optional add-ons
+
+| For | Install in Home Assistant |
 |---|---|
-| Kasa switches | TP-Link Smart Home (built in) |
-| Govee TV Backlight 3 Lite (H6099) | Matter (built in). The model has no Govee LAN Control; pair it with a code from the Govee app. Lights from HA's Govee integration also work |
-| Blink cameras | [Local Camera Vision](https://github.com/rohanjariwala03/ha-local-camera-vision) (formerly Blink Instant Events; HACS, replaces the official Blink integration) |
-| Echo speakers, announcements | Alexa Media Player (HACS) |
-| Scenes | Created in HA (Settings › Automations & scenes › Scenes) or in the app |
+| Cameras, live view, talk-back, clips, face alerts | [Local Camera Vision](https://github.com/rohanjariwala03/ha-local-camera-vision) (HACS) |
+| Echo announcements | [Alexa Media Player](https://github.com/alandtse/alexa_media_player) (HACS) |
+| Phone alerts with pictures | The `smarthome_push` integration in [`homeassistant/custom_components`](homeassistant/custom_components/smarthome_push) (see below) |
+| Govee scenes, music mode and DreamView | A Govee API key, entered in the app's Settings |
 
-Create the token under Profile › Security › Long-lived access tokens. Adding, removing or renaming devices, schedules and automations need an admin user's token. If you only need control, a non-admin user is safer.
+### Push alerts
 
-## Code map
+Alerts go from Home Assistant straight to Apple, so they need a paid developer account:
+
+1. On developer.apple.com, create a key with Apple Push Notifications service (Certificates, Identifiers & Profiles › Keys) and download the `.p8` file.
+2. Copy `homeassistant/custom_components/smarthome_push` into your Home Assistant's `config/custom_components/` folder and restart Home Assistant.
+3. Add the **Smart Home app push** integration and enter your Team ID, the key's ID, the contents of the `.p8` file and your bundle id. Turn on "Development build" for apps installed from Xcode.
+
+The key stays in Home Assistant, never in the app or this repository.
+
+## Using it away from home
+
+The app only talks to the address you give it. To use it away from home, put your phone and Home Assistant on the same private network, for example with the [Tailscale add-on](https://github.com/hassio-addons/addon-tailscale) and the Tailscale app on your phone, or use Home Assistant Cloud. **Don't port-forward Home Assistant to the internet.**
+
+## Privacy and security
+
+- Your token is stored only in the iOS Keychain and is never logged or sent anywhere except your Home Assistant.
+- The widget, Siri and the watch use a copy in a keychain group only this app can read.
+- Camera, Alexa and Govee accounts stay in Home Assistant.
+
+## For developers
+
+Expo SDK 57, React Native and Expo Router, with [`home-assistant-js-websocket`](https://github.com/home-assistant/home-assistant-js-websocket) for the connection. The widget, watch app and notification extension are Swift targets in `targets/` (via `@bacons/apple-targets`). The `ios/` folder is generated: native changes go in `app.json`, `app.config.js` and `plugins/`. There are no app tests; run `npx tsc --noEmit` and `npx expo lint` before sending a change.
+
+### Code map
 
 - `src/ha.tsx`: HA connection (via `home-assistant-js-websocket`: auth, reconnect, resubscribe), live entity and device registry, `call()` for services (resolves `false` on failure). Also decides what counts as a device: a switch on a camera, speaker, TV, light or fan (an Echo's Do Not Disturb, a Govee light's music mode) is a setting of that device, not a tile.
 - `src/optimistic.ts`: switches and tiles flip the moment they're tapped and hold until HA reports the change (or 15 s), snapping back with an error buzz if the call fails.
@@ -66,32 +124,25 @@ Create the token under Profile › Security › Long-lived access tokens. Adding
 - `targets/watch/`: Apple Watch app (SwiftUI): camera snapshots with the doorbell first, device toggles, scenes, calling HA's REST API. `_shared/WatchSync.swift` hands it the URL, token and favourites over WatchConnectivity. It needs the iPhone nearby on home Wi-Fi.
 - `plugins/with-scene-lifecycle.js`: the iOS 27 SDK requires the UIScene lifecycle, and Expo 57's template doesn't use it yet.
 
-## Hub watchdog
+### Hub watchdog (Mac + UTM only)
 
-Home Assistant runs in a UTM VM on a Mac. `scripts/hub-watchdog.sh` runs every 2 minutes from the LaunchAgent in `scripts/com.smarthome.hub-watchdog.plist`. On the home network it starts the VM if it isn't running, restarts it after about 6 minutes of HA not answering (at most once per 20 minutes), and copies HA's newest backup to `~/Home Assistant Backups`, keeping 7. The VM id, addresses and script path are hard-coded for this Mac; change them before using it elsewhere. To install:
+If you run Home Assistant OS in a [UTM](https://mac.getutm.app) virtual machine on a Mac, `scripts/hub-watchdog.sh` keeps it running. Every 2 minutes, on your home network, it starts the VM if it's stopped, restarts it after about 6 minutes of Home Assistant not answering (at most once per 20 minutes), and copies Home Assistant's newest backup to `~/Home Assistant Backups`, keeping 7.
 
-```bash
-cp scripts/com.smarthome.hub-watchdog.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.smarthome.hub-watchdog.plist
-```
+1. Create `scripts/hub-watchdog.env` (git-ignored):
 
-## Security
+   ```bash
+   VM="Home Assistant"          # the UTM VM's name or id
+   HA=http://192.168.1.50:8123  # Home Assistant's address
+   GATEWAY=192.168.1.1          # your router; the script does nothing on other networks
+   ```
 
-- Away from home: the Tailscale add-on advertises a subnet route for the HA host's LAN address (`/32`, approved, key expiry off), so the app keeps using the same `http://` URL. The iPhone runs the Tailscale app with VPN On Demand. Never port-forward Home Assistant.
-- The token is a bearer credential for the house, cameras included. It is stored only in the Keychain and never logged.
-- Blink credentials live in the Blink Instant Events integration in HA, never in the app.
+2. In `scripts/com.smarthome.hub-watchdog.plist`, change `/path/to/smart-home` to where you cloned this repo, then:
 
-## Recent changes
-
-October 2026
-
-- Home shows only favourites; all devices moved to a new Devices tab. Widgets, Siri, Control Center and the watch follow the same favourites.
-- Switches respond instantly and snap back if HA rejects the change. Live view got pinch to zoom and controls that hide themselves.
-- TVs show up as devices, Echos as speakers, and any device can turn others on with it ("When this turns on, also turn on…").
-- Echo announcements and phone problem alerts can be muted per device, and the Announcements card says why an alert wouldn't be spoken.
-- Devices can be removed from their sheet or from Settings. Lights from HA's Govee integration now show music mode as a setting and scenes as a picker.
-- Added the hub watchdog for the Mac that runs Home Assistant.
+   ```bash
+   cp scripts/com.smarthome.hub-watchdog.plist ~/Library/LaunchAgents/
+   launchctl load ~/Library/LaunchAgents/com.smarthome.hub-watchdog.plist
+   ```
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Not affiliated with Home Assistant, Apple, Amazon, Blink or Govee.

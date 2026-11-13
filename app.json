@@ -10,19 +10,12 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "supportsTablet": true,
-      "bundleIdentifier": "com.rohanjariwala.smarthome",
-      "appleTeamId": "6JZ9VLN88F",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
         "NSLocalNetworkUsageDescription": "Connects to Home Assistant on your home network.",
         "NSMicrophoneUsageDescription": "Lets you talk through your Blink cameras."
-      },
-      "entitlements": {
-        "keychain-access-groups": [
-          "$(AppIdentifierPrefix)com.rohanjariwala.smarthome.shared"
-        ]
       }
     },
     "android": {

@@ -42,3 +42,7 @@ example
 /ios
 /android
 __pycache__/
+
+# local settings: Apple team, bundle id, hub watchdog
+.env.local
+scripts/hub-watchdog.env
