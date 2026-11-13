@@ -7,6 +7,8 @@ A native iPhone and iPad app for [Home Assistant](https://www.home-assistant.io)
   <img src="docs/screenshots/ipad-devices.png" alt="Devices tab on iPad" height="420">
 </p>
 
+If it's useful to you, you can [buy me a coffee](https://buymeacoffee.com/rohanjariwala03) ☕
+
 > Personal project, shared as is. It's built and tested around one house (Kasa, Govee over Matter, Ecobee, Echo, Blink, Google/Android TVs), so other setups may hit rough edges. Issues and pull requests are welcome.
 
 ## Features
