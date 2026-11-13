@@ -38,7 +38,7 @@ There are no tests. Before you finish a change, run `npx tsc --noEmit` and `npx 
 |---|---|
 | Kasa switches | TP-Link Smart Home (built in) |
 | Govee TV Backlight 3 Lite (H6099) | Matter (built in). The model has no Govee LAN Control; pair it with a code from the Govee app. Lights from HA's Govee integration also work |
-| Blink cameras | [Blink Instant Events](https://github.com/rohanjariwala03/ha-blink-instant-events) (HACS; replaces the official Blink integration). Optional Blink Vision add-on for faces and objects |
+| Blink cameras | [Local Camera Vision](https://github.com/rohanjariwala03/ha-local-camera-vision) (formerly Blink Instant Events; HACS, replaces the official Blink integration) |
 | Echo speakers, announcements | Alexa Media Player (HACS) |
 | Scenes | Created in HA (Settings › Automations & scenes › Scenes) or in the app |
 
