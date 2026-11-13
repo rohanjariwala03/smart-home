@@ -4,7 +4,7 @@ Personal iPhone app (Expo SDK 57 / React Native) for the house: Govee TV lights,
 
 ```
 iPhone app ──WebSocket──▶ Home Assistant ──▶ TP-Link (Kasa), Matter (Govee), Alexa Media Player, ...
-          └─HTTP (HLS)──▶ Blink Live View Proxy integration ──▶ proxy add-on ──▶ Blink cloud
+          └─HTTP (HLS)──▶ Blink Instant Events integration ──▶ Blink cloud
 ```
 
 ## The app
@@ -38,7 +38,7 @@ There are no tests. Before you finish a change, run `npx tsc --noEmit` and `npx 
 |---|---|
 | Kasa switches | TP-Link Smart Home (built in) |
 | Govee TV Backlight 3 Lite (H6099) | Matter (built in). The model has no Govee LAN Control; pair it with a code from the Govee app. Lights from HA's Govee integration also work |
-| Blink cameras | [Blink Live View Proxy](https://github.com/Teethree89/ha-blink-live-view-proxy) add-on + integration (replaces the official Blink integration) |
+| Blink cameras | [Blink Instant Events](https://github.com/rohanjariwala03/ha-blink-instant-events) (HACS; replaces the official Blink integration). Optional Blink Vision add-on for faces and objects |
 | Echo speakers, announcements | Alexa Media Player (HACS) |
 | Scenes | Created in HA (Settings › Automations & scenes › Scenes) or in the app |
 
@@ -55,8 +55,8 @@ Create the token under Profile › Security › Long-lived access tokens. Adding
 - `components/scene-list.tsx` + `src/scenes.ts` + `components/scene-editor.tsx`: run any HA scene or script, and make your own. App scenes are HA scripts (`script.smarthome_scene_*`), so Siri, widgets and the watch can run them. They can include TVs; Govee scenes ride in the script's variables and are applied by the app.
 - `src/govee.tsx`: optional Govee cloud API key for scenes, music mode and DreamView on Matter-added Govee lights, which Matter doesn't expose.
 - `src/app/cameras.tsx` + `components/camera-automations.tsx`: snapshots, motion, arming, per-camera alert switches, and automatic arming: at night (`smarthome_night_*`), when everyone leaves or returns (`smarthome_leave_*`, `smarthome_arrive_*`, from `zone.home`), and motion turns on lights (`smarthome_motionlight_*`). `smarthome://cameras?live=<slug>` opens a camera's live view; motion and doorbell alerts link there.
-- `src/components/live-view.tsx`: gets a 10-minute token from the proxy integration and plays its HLS stream (`/hls/index.m3u8`) in expo-video with the app's own controls. Hold the mic to talk: `modules/mic-stream` (local Expo module, Swift) streams 16-bit PCM to the proxy's `/ptt` WebSocket. Also camera settings (`/controls`), Record (`/last-liveview.mp4`) and full screen. `src/orientation.ts` keeps the app portrait and unlocks rotation on video screens.
-- `components/clips.tsx`: the last 30 days of motion clips from the proxy's `/clips` API, to play or share.
+- `src/components/live-view.tsx`: gets a 10-minute token from Blink Instant Events (`/api/blink_instant_events/cameras/<slug>`) and plays its HLS stream (`/hls/index.m3u8`) in expo-video with the app's own controls. Hold the mic to talk: `modules/mic-stream` (local Expo module, Swift) streams 16-bit PCM to its `/ptt` WebSocket. Also camera settings (`/controls`), Record (`/last-liveview.mp4`) and full screen. `src/orientation.ts` keeps the app portrait and unlocks rotation on video screens.
+- `components/clips.tsx`: the last 30 days of motion clips from the `/api/blink_instant_events/clips` API, to play or share.
 - `components/live-grid.tsx` + `components/camera-strip.tsx`: all cameras live at once, and the camera row on Home.
 - `src/app/status.tsx` + `components/energy-card.tsx`: health (HA version and updates, Blink connection and last poll, offline devices, batteries), per-camera health, and energy (live W, daily kWh from HA statistics). Its switch turns on the `smarthome_health` phone alert; each device can be muted from its sheet.
 - `components/announce-settings.tsx`: Echo announcements for the doorbell, camera motion and home problems, with quiet hours. Each camera and device has its own Announce on Echo switch (on by default). The card lists anything that would stop an alert from being spoken, with one-tap fixes.
@@ -77,9 +77,9 @@ launchctl load ~/Library/LaunchAgents/com.smarthome.hub-watchdog.plist
 
 ## Security
 
-- Away from home: the Tailscale add-on advertises a subnet route for the HA host's LAN address (`/32`, approved, key expiry off), so the app keeps using the same `http://` URL. The iPhone runs the Tailscale app with VPN On Demand. Never port-forward Home Assistant or the proxy.
+- Away from home: the Tailscale add-on advertises a subnet route for the HA host's LAN address (`/32`, approved, key expiry off), so the app keeps using the same `http://` URL. The iPhone runs the Tailscale app with VPN On Demand. Never port-forward Home Assistant.
 - The token is a bearer credential for the house, cameras included. It is stored only in the Keychain and never logged.
-- Blink credentials live in the proxy add-on, never in the app.
+- Blink credentials live in the Blink Instant Events integration in HA, never in the app.
 
 ## Recent changes
 
@@ -91,3 +91,7 @@ October 2026
 - Echo announcements and phone problem alerts can be muted per device, and the Announcements card says why an alert wouldn't be spoken.
 - Devices can be removed from their sheet or from Settings. Lights from HA's Govee integration now show music mode as a setting and scenes as a picker.
 - Added the hub watchdog for the Mac that runs Home Assistant.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
