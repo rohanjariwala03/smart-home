@@ -1,12 +1,13 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, router, ThemeProvider } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 import { Appearance, useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import { HalloweenSounds } from '@/components/halloween';
-import { HAProvider } from '@/ha';
+import { HAProvider, useHA } from '@/ha';
 import { isPad } from '@/orientation';
 import { Push } from '@/push';
 
@@ -24,8 +25,18 @@ export default function TabLayout() {
       <HAProvider>
         <AppTabs />
         <Push />
+        <FirstRun />
         {isPad && <HalloweenSounds />}
       </HAProvider>
     </ThemeProvider>
   );
+}
+
+/** Nothing to show until Home Assistant is set up: open Settings, where the app is already looking for it. */
+function FirstRun() {
+  const { status } = useHA();
+  useEffect(() => {
+    if (status === 'no-config') setTimeout(() => router.navigate('/settings'));
+  }, [status]);
+  return null;
 }

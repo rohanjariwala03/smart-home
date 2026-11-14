@@ -18,6 +18,7 @@ import {
   watched,
   watchedOf,
   without,
+  NO_ALERTS,
 } from '@/automations';
 import { stateText } from '@/components/device-sheet';
 import { EnergyCard } from '@/components/energy-card';
@@ -260,7 +261,7 @@ function HealthAlerts() {
         <Switch value={!!auto} disabled={!notify.length} onValueChange={toggle} />
       </View>
       {!notify.length && (
-        <ThemedText type="small" themeColor="textSecondary">Needs the Home Assistant app on this phone, signed in to your home.</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">{NO_ALERTS}</ThemedText>
       )}
       <ThemedText type="small" themeColor="textSecondary">
         If Home Assistant itself stops, it can’t send alerts. This screen shows it as not connected.

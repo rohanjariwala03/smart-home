@@ -192,7 +192,9 @@ const KINDS = `{% set a = trigger.to_state.attributes %}{% set k = [] %}\
  */
 export function setAlert(creds: Creds, camera: string, motion: string, name: string, notify: string, slug?: string, doorbell = false, smart?: Smart) {
   const live = slug && `smarthome://cameras?live=${encodeURIComponent(slug)}`;
-  const notification = (message: string, image: string, url = live) => ({
+  // The app's own push (notify.smart_home_app) also puts a Live Activity up when the doorbell rings.
+  const activity = (on: boolean | string) => doorbell && notify === 'notify.smart_home_app' && { live_activity: on };
+  const notification = (message: string, image: string, url = live, ring: boolean | string = true) => ({
     action: notify,
     data: {
       title: name,
@@ -203,6 +205,7 @@ export function setAlert(creds: Creds, camera: string, motion: string, name: str
         tag: alertId(camera),
         ...(live && { url, actions: [{ action: 'URI', title: 'Live view', uri: live }] }),
         ...(doorbell && { push: { 'interruption-level': 'time-sensitive' } }),
+        ...activity(ring),
       },
     },
   });
@@ -235,6 +238,8 @@ export function setAlert(creds: Creds, camera: string, motion: string, name: str
         // A press opens live view (they're at the door); a detection opens what Blink Vision saw.
         live &&
           `{{ '${live}' if trigger.id == 'doorbell_press' else 'smarthome://cameras?camera=${encodeURIComponent(slug)}&seen=' ~ (trigger.to_state.attributes.image | urlencode) ~ '&what=' ~ (trigger.to_state.attributes.summary | urlencode) }}`,
+        // Only the press: the detection that follows updates the alert, it isn't a second ring.
+        `{{ trigger.id == 'doorbell_press' }}`,
       ),
     ],
     mode: 'queued',
@@ -882,6 +887,10 @@ export function useAnnounce() {
 }
 
 /** The phone's notify actions from the HA companion app (notify.mobile_app_<phone>), if it's installed. */
+/** Shown where alerts can't be turned on yet: Home Assistant has no way to reach this phone. */
+export const NO_ALERTS =
+  'Alerts need a way to reach this phone: add the Smart Home app push integration to Home Assistant (see the README on GitHub), or install the Home Assistant app on this phone and sign in.';
+
 export function useNotifyServices() {
   const { conn } = useHA();
   const [found, setFound] = useState<string[]>([]);
