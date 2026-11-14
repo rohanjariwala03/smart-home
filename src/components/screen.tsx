@@ -11,7 +11,7 @@ import { useHA, type Status } from '@/ha';
 import { useTheme } from '@/hooks/use-theme';
 
 const BANNER: Partial<Record<Status, string>> = {
-  'no-config': 'Not set up. Enter your Home Assistant URL and token in Settings.',
+  'no-config': 'Not set up yet: connect to your Home Assistant under Settings.',
   connecting: 'Connecting to Home Assistant…',
   disconnected: 'Disconnected. Reconnecting; states below may be stale.',
   error: 'Connection failed. Check Settings.',
