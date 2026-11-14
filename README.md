@@ -63,11 +63,12 @@ The app isn't on the App Store, so you build it yourself.
 
    The first time, Xcode may ask you to sign in to your Apple account and trust the developer certificate on the phone (Settings › General › VPN & Device Management).
 
-4. In Home Assistant, create a token: your profile › Security › Long-lived access tokens.
+4. Open the app, go to Settings › Address & sign-in, enter your Home Assistant address (for example `http://192.168.1.50:8123`) and choose how to connect:
 
-5. Open the app, go to Settings › Address & token, and enter your Home Assistant address (for example `http://192.168.1.50:8123`) and the token.
+   - **Sign in with Home Assistant** (easiest): opens your Home Assistant's own login page. The app then keeps a long-lived token, listed in your Home Assistant profile under Security, where you can revoke it. This needs your Home Assistant to have internet access, because it checks [this page](https://rohanjariwala03.github.io/smart-home/) to confirm where to send you back.
+   - **Or paste a token**: in Home Assistant, go to your profile › Security › Long-lived access tokens, create one, and paste it. Works with no internet at all.
 
-A token from an admin user lets the app add devices, schedules and automations. If you only want control, a non-admin user is safer.
+Signing in as an admin user lets the app add devices, schedules and automations. If you only want control, a non-admin user is safer.
 
 Expo Go can't run this app because of its widget, watch and native audio parts.
 

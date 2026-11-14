@@ -11,6 +11,7 @@ import { WallSetting } from '@/components/wall';
 import { Spacing } from '@/constants/theme';
 import { listGovee, useGoveeKey } from '@/govee';
 import { useHA } from '@/ha';
+import { signIn } from '@/sign-in';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function SettingsScreen() {
@@ -19,12 +20,14 @@ export default function SettingsScreen() {
   const [draftUrl, setUrl] = useState<string>();
   const url = draftUrl ?? creds?.url ?? '';
   const [token, setToken] = useState('');
+  const [signing, setSigning] = useState<string>();
   const [sheet, setSheet] = useState<SheetStart>();
   const input = [styles.input, { color: theme.text, borderColor: theme.textSecondary }];
 
   const trimmedUrl = url.trim().replace(/\/+$/, '');
   const nextToken = token.trim() || creds?.token || '';
-  const valid = /^https?:\/\/.+/.test(trimmedUrl) && nextToken.length > 0;
+  const urlOk = /^https?:\/\/.+/.test(trimmedUrl);
+  const valid = urlOk && nextToken.length > 0;
   const ready = status === 'ready';
 
   return (
@@ -49,42 +52,70 @@ export default function SettingsScreen() {
         <ThemedText type="small" themeColor="textSecondary">
           {ready ? `Connected · ${conn?.haVersion ?? ''} · ${Object.keys(entities).length} entities` : `${status}${error ? ` (${error})` : ''}`}
         </ThemedText>
-        <Disclosure title="Address & token" summary={creds?.url} initiallyOpen={!creds}>
+        <Disclosure title="Address & sign-in" summary={creds?.url} initiallyOpen={!creds}>
           <TextInput
             style={input}
             value={url}
             onChangeText={setUrl}
-            placeholder="http://192.168.x.x"
+            placeholder="http://192.168.x.x:8123"
             placeholderTextColor={theme.textSecondary}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
           />
-          <TextInput
-            style={input}
-            value={token}
-            onChangeText={setToken}
-            placeholder={creds ? 'Long-lived token (saved; leave blank to keep)' : 'Long-lived access token'}
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry
-          />
           <View style={styles.chips}>
             <Chip
-              icon="link"
-              label="Save & connect"
+              icon="person.crop.circle.badge.checkmark"
+              label={signing === 'Signing in…' ? signing : 'Sign in with Home Assistant'}
               selected
-              disabled={!valid}
-              onPress={() => {
-                save({ url: trimmedUrl, token: nextToken });
-                setToken('');
+              disabled={!urlOk || signing === 'Signing in…'}
+              onPress={async () => {
+                setSigning('Signing in…');
+                try {
+                  const next = await signIn(trimmedUrl);
+                  if (next) await save({ url: trimmedUrl, token: next });
+                  setSigning(undefined);
+                } catch (e: any) {
+                  setSigning(`Couldn’t sign in: ${e?.message ?? e}`);
+                }
               }}
             />
           </View>
+          {signing && signing !== 'Signing in…' && <ThemedText type="small">{signing}</ThemedText>}
           <ThemedText type="small" themeColor="textSecondary">
-            Token is stored in the iOS Keychain. Adding devices needs an admin user&apos;s token; for control only, a
-            non-admin user (Profile → Security) is safer.
+            Opens your Home Assistant&apos;s own login page. The app then keeps a long-lived token, listed in your Home
+            Assistant profile under Security, where you can revoke it. Home Assistant needs internet access for this
+            step; if it has none, paste a token below.
+          </ThemedText>
+          <Disclosure title="Or paste a token" summary={creds ? 'Token saved' : undefined}>
+            <TextInput
+              style={input}
+              value={token}
+              onChangeText={setToken}
+              placeholder={creds ? 'Long-lived token (saved; leave blank to keep)' : 'Long-lived access token'}
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+            <View style={styles.chips}>
+              <Chip
+                icon="link"
+                label="Save & connect"
+                disabled={!valid}
+                onPress={() => {
+                  save({ url: trimmedUrl, token: nextToken });
+                  setToken('');
+                }}
+              />
+            </View>
+            <ThemedText type="small" themeColor="textSecondary">
+              Create one in Home Assistant: your profile › Security › Long-lived access tokens.
+            </ThemedText>
+          </Disclosure>
+          <ThemedText type="small" themeColor="textSecondary">
+            The token is stored in the iOS Keychain. Adding devices needs an admin user; for control only, a non-admin
+            user is safer.
           </ThemedText>
         </Disclosure>
         <GoveeSettings />
