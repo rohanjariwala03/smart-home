@@ -887,6 +887,10 @@ export function useAnnounce() {
 }
 
 /** The phone's notify actions from the HA companion app (notify.mobile_app_<phone>), if it's installed. */
+/** Shown where alerts can't be turned on yet: Home Assistant has no way to reach this phone. */
+export const NO_ALERTS =
+  'Alerts need a way to reach this phone: add the Smart Home app push integration to Home Assistant (see the README on GitHub), or install the Home Assistant app on this phone and sign in.';
+
 export function useNotifyServices() {
   const { conn } = useHA();
   const [found, setFound] = useState<string[]>([]);

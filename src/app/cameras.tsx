@@ -21,6 +21,7 @@ import {
   useAutomationConfig,
   useNotifyServices,
   type SmartKind,
+  NO_ALERTS,
 } from '@/automations';
 import { AlertRows } from '@/components/announce-settings';
 import { ArmingCard, DoorbellTvCard, MotionLightCard } from '@/components/camera-automations';
@@ -410,7 +411,7 @@ function MotionAlerts({ camera, motion, notify, slug, doorbell, events, vision }
   if (!notify)
     return (
       <ThemedText type="small" themeColor="textSecondary">
-        Motion alerts need the Home Assistant app on this phone, signed in to your home.
+        {NO_ALERTS}
       </ThemedText>
     );
 
