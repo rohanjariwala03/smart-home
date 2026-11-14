@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
+
+import { findHomeAssistant, type FoundHA } from '../../modules/ha-discovery';
 
 import { AddDeviceSheet, DiscoveredList, type SheetStart } from '@/components/add-device';
 import { AnnounceSettings } from '@/components/announce-settings';
@@ -21,6 +23,13 @@ export default function SettingsScreen() {
   const url = draftUrl ?? creds?.url ?? '';
   const [token, setToken] = useState('');
   const [signing, setSigning] = useState<string>();
+  const [found, setFound] = useState<FoundHA[]>();
+  const look = () => findHomeAssistant().then(setFound, () => setFound([]));
+  const search = () => {
+    setFound(undefined);
+    look();
+  };
+  useEffect(() => void look(), []);
   const [sheet, setSheet] = useState<SheetStart>();
   const input = [styles.input, { color: theme.text, borderColor: theme.textSecondary }];
 
@@ -63,6 +72,23 @@ export default function SettingsScreen() {
             autoCorrect={false}
             keyboardType="url"
           />
+          <View style={styles.chips}>
+            {found?.map((h) => (
+              <Chip
+                key={h.url}
+                icon="house.fill"
+                label={`${h.name} · ${h.url.replace(/^https?:\/\//, '')}`}
+                selected={h.url.replace(/\/+$/, '') === trimmedUrl}
+                onPress={() => setUrl(h.url)}
+              />
+            ))}
+            <Chip
+              icon="magnifyingglass"
+              label={!found ? 'Looking on this Wi-Fi…' : found.length ? 'Search again' : 'None found · Search again'}
+              disabled={!found}
+              onPress={search}
+            />
+          </View>
           <View style={styles.chips}>
             <Chip
               icon="person.crop.circle.badge.checkmark"
