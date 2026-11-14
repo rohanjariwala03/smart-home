@@ -17,7 +17,7 @@ If it's useful to you, you can [buy me a coffee](https://buymeacoffee.com/rohanj
 - **Devices:** everything grouped by your Home Assistant areas, with a room-jump bar, room temperature and occupancy, and All off. Tap to switch, hold for quick actions (turn off in 30 minutes or an hour, favourite, settings), tap the name for the full settings sheet.
 - **Timers, schedules and auto-off** for lights and switches. They're saved as ordinary Home Assistant automations, so they run with your phone off.
 - **Scenes:** run any Home Assistant scene or script, or make your own in the app.
-- **Cameras:** snapshots, live view with push-to-talk, motion clips, arming, and "who's at the door" alerts. Needs [Local Camera Vision](https://github.com/rohanjariwala03/ha-local-camera-vision) (Blink, RTSP and ONVIF cameras).
+- **Cameras:** snapshots, live view with push-to-talk, motion clips, arming, and "who's at the door" alerts. When the doorbell rings, a **Live Activity** shows it on the Lock Screen and in the Dynamic Island for a few minutes; tap it for live view. Needs [Local Camera Vision](https://github.com/rohanjariwala03/ha-local-camera-vision) (Blink, RTSP and ONVIF cameras).
 - **Status:** Home Assistant health and updates, offline devices, batteries, energy use.
 - **Echo announcements** for the doorbell, motion and problems, with quiet hours. Needs [Alexa Media Player](https://github.com/alandtse/alexa_media_player).
 - **Add and remove devices** without the Home Assistant app, including Matter pairing codes.
@@ -63,7 +63,7 @@ The app isn't on the App Store, so you build it yourself.
 
    The first time, Xcode may ask you to sign in to your Apple account and trust the developer certificate on the phone (Settings › General › VPN & Device Management).
 
-4. Open the app, go to Settings › Address & sign-in, enter your Home Assistant address (for example `http://192.168.1.50:8123`) and choose how to connect:
+4. Open the app and go to Settings › Address & sign-in. The app looks for Home Assistant on your Wi-Fi: tap the one it finds, or type the address (for example `http://192.168.1.50:8123`). Then choose how to connect:
 
    - **Sign in with Home Assistant** (easiest): opens your Home Assistant's own login page. The app then keeps a long-lived token, listed in your Home Assistant profile under Security, where you can revoke it. This needs your Home Assistant to have internet access, because it checks [this page](https://rohanjariwala03.github.io/smart-home/) to confirm where to send you back.
    - **Or paste a token**: in Home Assistant, go to your profile › Security › Long-lived access tokens, create one, and paste it. Works with no internet at all.
@@ -90,6 +90,10 @@ Alerts go from Home Assistant straight to Apple, so they need a paid developer a
 3. Add the **Smart Home app push** integration and enter your Team ID, the key's ID, the contents of the `.p8` file and your bundle id. Turn on "Development build" for apps installed from Xcode.
 
 The key stays in Home Assistant, never in the app or this repository.
+
+The same integration puts up the doorbell's Live Activity (iOS 17.2 or later). Turn the doorbell's alert on in the app's Cameras tab, choosing the Smart Home app as where alerts go. If you set the alert up before this feature existed, turn it off and on again so it picks it up. The Live Activity ends by itself after 3 minutes.
+
+If you update the app, also copy the `smarthome_push` folder to Home Assistant again and restart it, so both sides match.
 
 ## Using it away from home
 

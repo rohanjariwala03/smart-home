@@ -272,7 +272,7 @@ function Camera({ entity, notify, vision, onClips }: {
               <SymbolView name="play.fill" size={22} tintColor="#fff" />
             </View>
           )}
-          <Text style={styles.stamp}>{new Date(entity.attributes.snapshot_taken ?? entity.last_updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
+          <Text style={styles.stamp}>{taken(new Date(entity.attributes.snapshot_taken ?? entity.last_updated))}</Text>
         </Pressable>
       )}
       {details.length > 0 && (
@@ -345,6 +345,14 @@ function BlinkRetryCard() {
       </View>
     </Card>
   );
+}
+
+/** When a snapshot was taken: the time today, "Yesterday, 2:31 PM", then "3 days ago" (calendar days). */
+function taken(d: Date, now = new Date()) {
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const midnight = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((midnight(now) - midnight(d)) / 864e5); // round: a day with a clock change isn't 24 h
+  return days <= 0 ? time : days === 1 ? `Yesterday, ${time}` : `${days} days ago`;
 }
 
 const styles = StyleSheet.create({
