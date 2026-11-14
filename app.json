@@ -18,7 +18,8 @@
         "NSMicrophoneUsageDescription": "Lets you talk through your Blink cameras.",
         "NSBonjourServices": [
           "_home-assistant._tcp"
-        ]
+        ],
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {

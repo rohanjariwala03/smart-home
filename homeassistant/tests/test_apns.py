@@ -9,7 +9,7 @@ import jwt
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "custom_components"))
-from smarthome_push.apns import check_key, payload  # noqa: E402
+from smarthome_push.apns import ACTIVITY_MINUTES, activity_end, activity_start, check_key, payload  # noqa: E402
 
 
 def test_payload_matches_companion_app_data() -> None:
@@ -63,3 +63,16 @@ def test_snooze() -> None:
     assert push.is_snoozed("cam_tag", "motion")
     assert not push.is_snoozed("old_tag", "health")
     assert not push.is_snoozed(None, None)
+
+
+def test_doorbell_live_activity() -> None:
+    """Start and end bodies match DoorbellAttributes in targets/widget/_shared/Doorbell.swift."""
+    start = activity_start("Someone’s at the door", "Front Door", "smarthome://cameras?live=front_door", 1000)["aps"]
+    assert start["event"] == "start"
+    assert start["attributes-type"] == "DoorbellAttributes"
+    assert start["attributes"] == {"camera": "Front Door", "url": "smarthome://cameras?live=front_door"}
+    assert start["content-state"] == {"message": "Someone’s at the door"}
+    assert start["stale-date"] == 1000 + ACTIVITY_MINUTES * 60
+    assert "sound" not in start["alert"]  # the doorbell's normal alert makes the sound
+    end = activity_end(2000)["aps"]
+    assert (end["event"], end["dismissal-date"], end["timestamp"]) == ("end", 2000, 2000)
