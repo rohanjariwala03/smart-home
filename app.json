@@ -15,7 +15,11 @@
           "NSAllowsLocalNetworking": true
         },
         "NSLocalNetworkUsageDescription": "Connects to Home Assistant on your home network.",
-        "NSMicrophoneUsageDescription": "Lets you talk through your Blink cameras."
+        "NSMicrophoneUsageDescription": "Lets you talk through your Blink cameras.",
+        "NSBonjourServices": [
+          "_home-assistant._tcp"
+        ],
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {

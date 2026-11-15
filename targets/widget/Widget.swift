@@ -1,3 +1,4 @@
+import ActivityKit
 import AppIntents
 import SwiftUI
 import WidgetKit
@@ -385,5 +386,60 @@ struct SmartHomeWidgets: WidgetBundle {
     DevicesWidget()
     ThermostatWidget()
     DeviceControl()
+    DoorbellLiveActivity()
+  }
+}
+
+// MARK: - Doorbell Live Activity (started and ended by Home Assistant; see _shared/Doorbell.swift)
+
+struct DoorbellLiveActivity: Widget {
+  var body: some WidgetConfiguration {
+    ActivityConfiguration(for: DoorbellAttributes.self) { context in
+      HStack(spacing: 14) {
+        Image(systemName: "bell.and.waves.left.and.right.fill")
+          .font(.title)
+          .foregroundStyle(.orange)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(context.state.message).font(.headline)
+          Text("\(context.attributes.camera) · \(context.isStale ? "a few minutes ago" : "just now")")
+            .font(.subheadline)
+            .foregroundStyle(dim)
+        }
+        Spacer()
+        Label("Live view", systemImage: "video.fill")
+          .font(.subheadline.weight(.semibold))
+          .padding(.horizontal, 12)
+          .padding(.vertical, 8)
+          .background(.orange, in: Capsule())
+          .foregroundStyle(.black)
+      }
+      .padding()
+      .activityBackgroundTint(navy)
+      .activitySystemActionForegroundColor(.white)
+      .widgetURL(URL(string: context.attributes.url))
+    } dynamicIsland: { context in
+      DynamicIsland {
+        DynamicIslandExpandedRegion(.leading) {
+          Image(systemName: "bell.and.waves.left.and.right.fill").font(.title2).foregroundStyle(.orange)
+        }
+        DynamicIslandExpandedRegion(.center) {
+          VStack(spacing: 2) {
+            Text(context.state.message).font(.headline)
+            Text(context.attributes.camera).font(.subheadline).foregroundStyle(dim)
+          }
+        }
+        DynamicIslandExpandedRegion(.bottom) {
+          Label("Tap for live view", systemImage: "video.fill").font(.subheadline).foregroundStyle(.orange)
+        }
+      } compactLeading: {
+        Image(systemName: "bell.fill").foregroundStyle(.orange)
+      } compactTrailing: {
+        Text("Door").foregroundStyle(.orange)
+      } minimal: {
+        Image(systemName: "bell.fill").foregroundStyle(.orange)
+      }
+      .widgetURL(URL(string: context.attributes.url))
+      .keylineTint(.orange)
+    }
   }
 }

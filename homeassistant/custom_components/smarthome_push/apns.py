@@ -20,6 +20,7 @@ SANDBOX = "https://api.sandbox.push.apple.com"  # builds signed for development 
 JWT_SECONDS = 45 * 60  # Apple wants a token between 20 and 60 minutes old
 IMAGE_TTL = timedelta(days=2)
 GONE = {"BadDeviceToken", "Unregistered", "DeviceTokenNotForTopic"}  # the token will never work again
+ACTIVITY_MINUTES = 3  # how long the doorbell's Live Activity stays up
 
 
 def payload(message: str, title: str | None, data: dict[str, Any] | None, image: str | None) -> dict[str, Any]:
@@ -71,12 +72,14 @@ class Apns:
             self._token_at = now
         return self._token
 
-    async def send(self, device: str, body: dict[str, Any], collapse: str | None) -> tuple[int, str]:
-        """(status, Apple's reason); 200 means accepted."""
+    async def send(
+        self, device: str, body: dict[str, Any], collapse: str | None = None, live_activity: bool = False
+    ) -> tuple[int, str]:
+        """(status, Apple's reason); 200 means accepted. `live_activity`: a Live Activity token and body."""
         headers = {
             "authorization": f"bearer {self._jwt()}",
-            "apns-topic": self.topic,
-            "apns-push-type": "alert",
+            "apns-topic": f"{self.topic}.push-type.liveactivity" if live_activity else self.topic,
+            "apns-push-type": "liveactivity" if live_activity else "alert",
             "apns-priority": "10",
         }
         if collapse:
@@ -85,6 +88,36 @@ class Apns:
         resp = await client.post(f"{self.host}/3/device/{device}", json=body, headers=headers, timeout=15)
         reason = "" if resp.status_code == 200 else (resp.json() if resp.content else {}).get("reason", "")
         return resp.status_code, reason
+
+
+def activity_start(message: str, camera: str, url: str, now: int) -> dict[str, Any]:
+    """Starts the app's doorbell Live Activity (DoorbellAttributes in targets/widget/_shared/Doorbell.swift).
+
+    No sound: the doorbell's normal alert, sent alongside, already makes one.
+    """
+    return {
+        "aps": {
+            "timestamp": now,
+            "event": "start",
+            "content-state": {"message": message},
+            "attributes-type": "DoorbellAttributes",
+            "attributes": {"camera": camera, "url": url},
+            "alert": {"title": camera, "body": message},
+            "stale-date": now + ACTIVITY_MINUTES * 60,
+        }
+    }
+
+
+def activity_end(now: int) -> dict[str, Any]:
+    """Ends a doorbell Live Activity and takes it off the Lock Screen."""
+    return {
+        "aps": {
+            "timestamp": now,
+            "event": "end",
+            "content-state": {"message": "Someone was at the door"},
+            "dismissal-date": now,
+        }
+    }
 
 
 def check_key(key: str) -> None:
